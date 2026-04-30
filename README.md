@@ -1,7 +1,7 @@
 # SEDER DIT Tool
 
-[![CI](https://github.com/sederproductions/seder-dit-tool/actions/workflows/ci.yml/badge.svg)](https://github.com/sederproductions/seder-dit-tool/actions/workflows/ci.yml)
-[![Latest Release](https://img.shields.io/github/v/release/sederproductions/seder-dit-tool?label=latest%20release)](https://github.com/sederproductions/seder-dit-tool/releases/latest)
+[![CI](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/actions/workflows/ci.yml/badge.svg)](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/SEDERProductions/SEDER-Media-Suite-DIT-Tool?label=latest%20release)](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/releases/latest)
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 [![Local Processing](https://img.shields.io/badge/processing-local--only-1f7a4d)](#privacy)
 
