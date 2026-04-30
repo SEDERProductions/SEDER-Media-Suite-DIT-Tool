@@ -33,7 +33,15 @@ fn detects_nested_relative_path_matches() {
     write(&a.path().join("A001/clip.mov"), "same");
     write(&b.path().join("A001/clip.mov"), "same");
     let mut noop = |_| {};
-    let report = compare_folders_with_progress(a.path(), b.path(), CompareMode::PathSize, true, vec![], &mut noop).unwrap();
+    let report = compare_folders_with_progress(
+        a.path(),
+        b.path(),
+        CompareMode::PathSize,
+        true,
+        vec![],
+        &mut noop,
+    )
+    .unwrap();
     assert_eq!(report.rows[0].relative_path, "A001/clip.mov");
     assert_eq!(report.rows[0].status, FileStatus::Matching);
 }
@@ -45,7 +53,15 @@ fn detects_files_only_in_a_and_b() {
     write(&a.path().join("only-a.mov"), "a");
     write(&b.path().join("only-b.mov"), "b");
     let mut noop = |_| {};
-    let report = compare_folders_with_progress(a.path(), b.path(), CompareMode::PathSize, true, vec![], &mut noop).unwrap();
+    let report = compare_folders_with_progress(
+        a.path(),
+        b.path(),
+        CompareMode::PathSize,
+        true,
+        vec![],
+        &mut noop,
+    )
+    .unwrap();
     assert!(report
         .rows
         .iter()
@@ -65,7 +81,15 @@ fn detects_changed_and_matching_files() {
     write(&a.path().join("same.mov"), "ok");
     write(&b.path().join("same.mov"), "ok");
     let mut noop = |_| {};
-    let report = compare_folders_with_progress(a.path(), b.path(), CompareMode::PathSize, true, vec![], &mut noop).unwrap();
+    let report = compare_folders_with_progress(
+        a.path(),
+        b.path(),
+        CompareMode::PathSize,
+        true,
+        vec![],
+        &mut noop,
+    )
+    .unwrap();
     assert!(report
         .rows
         .iter()
@@ -107,7 +131,7 @@ fn checksum_comparison_detects_same_size_changes() {
         CompareMode::PathSizeChecksum,
         true,
         vec![],
-        &mut noop
+        &mut noop,
     )
     .unwrap();
     assert_eq!(report.rows[0].status, FileStatus::Changed);
@@ -128,7 +152,7 @@ fn exports_reports() {
         CompareMode::PathSizeChecksum,
         true,
         vec![],
-        &mut noop
+        &mut noop,
     )
     .unwrap();
     assert!(report_txt(&report, "Folder Compare").contains("Matching"));

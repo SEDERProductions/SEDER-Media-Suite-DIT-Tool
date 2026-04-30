@@ -150,8 +150,6 @@ fn relative(root: &Path, path: &Path) -> Result<String> {
         .replace('\\', "/"))
 }
 
-
-
 pub fn checksum_file_set(path: &Path) -> Result<FileChecksums> {
     let mut blake3_hasher = blake3::Hasher::new();
     let mut xxh64_hasher = XxHash64::with_seed(0);
@@ -300,7 +298,9 @@ pub fn compare_scans(a: &ScanResult, b: &ScanResult, mode: CompareMode) -> Compa
                 (Some(_), Some(_)) => FileStatus::Changed,
                 (Some(_), None) => FileStatus::OnlyInA,
                 (None, Some(_)) => FileStatus::OnlyInB,
-                (None, None) => unreachable!("key set is built from a ∪ b, at least one side exists"),
+                (None, None) => {
+                    unreachable!("key set is built from a ∪ b, at least one side exists")
+                }
             };
             ComparisonRow {
                 relative_path: key,
