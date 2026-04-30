@@ -1,0 +1,38 @@
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Rust
+/target/
+
+# CMake / Qt
+/build/
+/qt/build/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+install_manifest.txt
+
+# Release/package output
+/dist/
+/*.AppImage
+/*.zip
+/*.tar.gz
+/*.dmg
+/*.exe
+/*.msi
+*.app/
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs/temp
+*.log
+*.tmp
+*.bak
