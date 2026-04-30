@@ -1,3 +1,6 @@
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+#![allow(clippy::needless_borrow)]
+
 use crate::media_core::{
     compare_summary, create_dit_report_with_progress, dit_csv, dit_mhl, dit_txt,
     parse_ignore_patterns, pass_fail, ChecksumMethod, CompareMode, DitMetadata, DitReport,

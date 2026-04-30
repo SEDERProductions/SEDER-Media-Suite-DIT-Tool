@@ -23,8 +23,8 @@ ApplicationWindow {
     readonly property color green: dark ? "#4cab7e" : "#1f7a4d"
     readonly property color warn: dark ? "#c99746" : "#9a6a16"
     readonly property color bad: dark ? "#d25645" : "#b43a1f"
-    readonly property string mono: "Menlo"
-    readonly property string sans: "Manrope"
+    readonly property string mono: "Menlo, Consolas, monospace"
+    readonly property string sans: "Manrope, Helvetica Neue, Helvetica, Arial, sans-serif"
     readonly property var columnWidths: [118, 440, 110, 110, 280, 280]
 
     color: bg

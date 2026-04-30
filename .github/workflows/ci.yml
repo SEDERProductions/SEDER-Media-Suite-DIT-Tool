@@ -23,10 +23,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Format
         run: cargo fmt -- --check
+      - name: Lint
+        run: cargo clippy --all-targets --locked -- -D warnings
       - name: Check
-        run: cargo check --manifest-path Cargo.toml
+        run: cargo check --manifest-path Cargo.toml --locked
       - name: Test
-        run: cargo test --manifest-path Cargo.toml
+        run: cargo test --manifest-path Cargo.toml --locked
 
   qt:
     name: Qt build and tests (${{ matrix.name }})

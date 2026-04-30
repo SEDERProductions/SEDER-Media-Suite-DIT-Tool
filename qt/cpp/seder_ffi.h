@@ -44,6 +44,10 @@ typedef struct SederDitSummary {
     uint32_t compare_mode;
 } SederDitSummary;
 
+#ifdef __cplusplus
+static_assert(sizeof(SederDitSummary) == 64, "FFI struct SederDitSummary size mismatch: must match Rust padded size");
+#endif
+
 typedef void (*SederProgressCallback)(
     const char *phase,
     uint64_t processed_files,

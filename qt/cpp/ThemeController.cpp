@@ -1,14 +1,20 @@
 #include "ThemeController.h"
 
 #include <QApplication>
+#include <QGuiApplication>
 #include <QPalette>
 #include <QSettings>
+#include <QStyleHints>
 
 ThemeController::ThemeController(QObject *parent)
     : QObject(parent)
 {
     load();
     updateDark();
+
+    if (auto *app = qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
+        connect(app->styleHints(), &QStyleHints::colorSchemeChanged, this, &ThemeController::updateDark);
+    }
 }
 
 QString ThemeController::preference() const

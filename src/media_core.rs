@@ -1,11 +1,9 @@
-#![allow(dead_code)]
-
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File};
+use std::fs::File;
 use std::hash::Hasher;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use twox_hash::XxHash64;
 use walkdir::WalkDir;
@@ -152,11 +150,7 @@ fn relative(root: &Path, path: &Path) -> Result<String> {
         .replace('\\', "/"))
 }
 
-pub fn checksum_file(path: &Path, method: ChecksumMethod) -> Result<String> {
-    match method {
-        ChecksumMethod::Blake3 => Ok(checksum_file_set(path)?.blake3),
-    }
-}
+
 
 pub fn checksum_file_set(path: &Path) -> Result<FileChecksums> {
     let mut blake3_hasher = blake3::Hasher::new();
@@ -181,7 +175,7 @@ pub fn checksum_file_set(path: &Path) -> Result<FileChecksums> {
 
 pub fn parse_ignore_patterns(value: &str) -> Vec<String> {
     value
-        .split(|ch| matches!(ch, ',' | '\n' | '\r'))
+        .split([',', '\n', '\r'])
         .map(str::trim)
         .filter(|pattern| !pattern.is_empty())
         .map(str::to_string)
@@ -260,7 +254,7 @@ where
                     checksums,
                 },
             );
-            if processed_files % 64 == 0 {
+            if processed_files.is_multiple_of(64) {
                 progress(ProgressUpdate {
                     phase,
                     processed_files,
@@ -295,6 +289,7 @@ pub fn compare_scans(a: &ScanResult, b: &ScanResult, mode: CompareMode) -> Compa
     let mut keys = BTreeSet::new();
     keys.extend(a.files.keys().cloned());
     keys.extend(b.files.keys().cloned());
+    let total_files = keys.len();
     let rows = keys
         .into_iter()
         .map(|key| {
@@ -305,7 +300,7 @@ pub fn compare_scans(a: &ScanResult, b: &ScanResult, mode: CompareMode) -> Compa
                 (Some(_), Some(_)) => FileStatus::Changed,
                 (Some(_), None) => FileStatus::OnlyInA,
                 (None, Some(_)) => FileStatus::OnlyInB,
-                (None, None) => FileStatus::Changed,
+                (None, None) => unreachable!("key set is built from a ∪ b, at least one side exists"),
             };
             ComparisonRow {
                 relative_path: key,
@@ -340,25 +335,17 @@ pub fn compare_scans(a: &ScanResult, b: &ScanResult, mode: CompareMode) -> Compa
         })
         .collect::<Vec<_>>();
 
+    let mut unique_folders = a.folders.clone();
+    unique_folders.extend(b.folders.iter().cloned());
+
     CompareReport {
         rows,
         folders_only_in_a: a.folders.difference(&b.folders).cloned().collect(),
         folders_only_in_b: b.folders.difference(&a.folders).cloned().collect(),
-        total_files: a.files.len() + b.files.len(),
-        total_folders: a.folders.len() + b.folders.len(),
+        total_files,
+        total_folders: unique_folders.len(),
         total_size: a.total_size + b.total_size,
     }
-}
-
-pub fn compare_folders(
-    a: &Path,
-    b: &Path,
-    mode: CompareMode,
-    ignore_hidden_system: bool,
-    ignore_patterns: Vec<String>,
-) -> Result<CompareReport> {
-    let mut noop = |_update: ProgressUpdate| {};
-    compare_folders_with_progress(a, b, mode, ignore_hidden_system, ignore_patterns, &mut noop)
 }
 
 pub fn compare_folders_with_progress<F>(
@@ -396,42 +383,6 @@ where
     Ok(report)
 }
 
-pub fn create_dit_report(
-    source: &Path,
-    destination: &Path,
-    metadata: DitMetadata,
-    ignore_hidden_system: bool,
-) -> Result<DitReport> {
-    create_dit_report_with_mode(
-        source,
-        destination,
-        metadata,
-        CompareMode::PathSizeChecksum,
-        ignore_hidden_system,
-        vec![],
-    )
-}
-
-pub fn create_dit_report_with_mode(
-    source: &Path,
-    destination: &Path,
-    metadata: DitMetadata,
-    mode: CompareMode,
-    ignore_hidden_system: bool,
-    ignore_patterns: Vec<String>,
-) -> Result<DitReport> {
-    let mut noop = |_update: ProgressUpdate| {};
-    create_dit_report_with_progress(
-        source,
-        destination,
-        metadata,
-        mode,
-        ignore_hidden_system,
-        ignore_patterns,
-        &mut noop,
-    )
-}
-
 pub fn create_dit_report_with_progress<F>(
     source: &Path,
     destination: &Path,
@@ -465,7 +416,7 @@ pub fn current_timestamp() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or_default();
-    format!("unix:{secs}")
+    unix_to_utc_datetime(secs)
 }
 
 fn current_mhl_datetime() -> String {
@@ -720,26 +671,6 @@ pub fn dit_mhl(report: &DitReport) -> String {
     }
     out.push_str("</hashlist>\n");
     out
-}
-
-pub fn write_text(path: &Path, contents: &str) -> Result<()> {
-    let mut file =
-        File::create(path).with_context(|| format!("Unable to write {}", path.display()))?;
-    file.write_all(contents.as_bytes())?;
-    Ok(())
-}
-
-pub fn file_count_folder_count_size(scan: &ScanResult) -> (usize, usize, u64) {
-    (scan.files.len(), scan.folders.len(), scan.total_size)
-}
-
-pub fn ensure_dir(path: &Path) -> Result<()> {
-    fs::create_dir_all(path)?;
-    Ok(())
-}
-
-pub fn path_buf_string(path: &PathBuf) -> String {
-    path.to_string_lossy().to_string()
 }
 
 #[cfg(test)]

@@ -32,7 +32,8 @@ fn detects_nested_relative_path_matches() {
     let b = tempdir().unwrap();
     write(&a.path().join("A001/clip.mov"), "same");
     write(&b.path().join("A001/clip.mov"), "same");
-    let report = compare_folders(a.path(), b.path(), CompareMode::PathSize, true, vec![]).unwrap();
+    let mut noop = |_| {};
+    let report = compare_folders_with_progress(a.path(), b.path(), CompareMode::PathSize, true, vec![], &mut noop).unwrap();
     assert_eq!(report.rows[0].relative_path, "A001/clip.mov");
     assert_eq!(report.rows[0].status, FileStatus::Matching);
 }
@@ -43,7 +44,8 @@ fn detects_files_only_in_a_and_b() {
     let b = tempdir().unwrap();
     write(&a.path().join("only-a.mov"), "a");
     write(&b.path().join("only-b.mov"), "b");
-    let report = compare_folders(a.path(), b.path(), CompareMode::PathSize, true, vec![]).unwrap();
+    let mut noop = |_| {};
+    let report = compare_folders_with_progress(a.path(), b.path(), CompareMode::PathSize, true, vec![], &mut noop).unwrap();
     assert!(report
         .rows
         .iter()
@@ -62,7 +64,8 @@ fn detects_changed_and_matching_files() {
     write(&b.path().join("changed.mov"), "bb");
     write(&a.path().join("same.mov"), "ok");
     write(&b.path().join("same.mov"), "ok");
-    let report = compare_folders(a.path(), b.path(), CompareMode::PathSize, true, vec![]).unwrap();
+    let mut noop = |_| {};
+    let report = compare_folders_with_progress(a.path(), b.path(), CompareMode::PathSize, true, vec![], &mut noop).unwrap();
     assert!(report
         .rows
         .iter()
@@ -97,12 +100,14 @@ fn checksum_comparison_detects_same_size_changes() {
     let b = tempdir().unwrap();
     write(&a.path().join("clip.mov"), "abcd");
     write(&b.path().join("clip.mov"), "wxyz");
-    let report = compare_folders(
+    let mut noop = |_| {};
+    let report = compare_folders_with_progress(
         a.path(),
         b.path(),
         CompareMode::PathSizeChecksum,
         true,
         vec![],
+        &mut noop
     )
     .unwrap();
     assert_eq!(report.rows[0].status, FileStatus::Changed);
@@ -116,12 +121,14 @@ fn exports_reports() {
     let b = tempdir().unwrap();
     write(&a.path().join("clip.mov"), "abcd");
     write(&b.path().join("clip.mov"), "abcd");
-    let report = compare_folders(
+    let mut noop = |_| {};
+    let report = compare_folders_with_progress(
         a.path(),
         b.path(),
         CompareMode::PathSizeChecksum,
         true,
         vec![],
+        &mut noop
     )
     .unwrap();
     assert!(report_txt(&report, "Folder Compare").contains("Matching"));
@@ -154,7 +161,8 @@ fn dit_mhl_exports_destination_xxh64_without_blake3() {
     let b = tempdir().unwrap();
     write(&a.path().join("A001/clip.mov"), "abcd");
     write(&b.path().join("A001/clip.mov"), "abcd");
-    let report = create_dit_report(
+    let mut noop = |_| {};
+    let report = create_dit_report_with_progress(
         a.path(),
         b.path(),
         DitMetadata {
@@ -166,7 +174,10 @@ fn dit_mhl_exports_destination_xxh64_without_blake3() {
             destination_path: b.path().display().to_string(),
             checksum_method: ChecksumMethod::Blake3,
         },
+        CompareMode::PathSizeChecksum,
         true,
+        vec![],
+        &mut noop,
     )
     .unwrap();
 
@@ -195,7 +206,8 @@ fn dit_mhl_escapes_xml_values_and_keeps_failed_status() {
     let b = tempdir().unwrap();
     write(&a.path().join("A&B/clip \"one\".mov"), "abcd");
     write(&b.path().join("A&B/clip \"one\".mov"), "wxyz");
-    let report = create_dit_report(
+    let mut noop = |_| {};
+    let report = create_dit_report_with_progress(
         a.path(),
         b.path(),
         DitMetadata {
@@ -207,7 +219,10 @@ fn dit_mhl_escapes_xml_values_and_keeps_failed_status() {
             destination_path: b.path().display().to_string(),
             checksum_method: ChecksumMethod::Blake3,
         },
+        CompareMode::PathSizeChecksum,
         true,
+        vec![],
+        &mut noop,
     )
     .unwrap();
     let mhl = dit_mhl(&report);
@@ -226,7 +241,8 @@ fn creates_mode_aware_dit_reports_without_checksums() {
     write(&a.path().join("A001/clip.mov"), "same");
     write(&b.path().join("A001/clip.mov"), "same");
 
-    let report = create_dit_report_with_mode(
+    let mut noop = |_| {};
+    let report = create_dit_report_with_progress(
         a.path(),
         b.path(),
         DitMetadata {
@@ -241,6 +257,7 @@ fn creates_mode_aware_dit_reports_without_checksums() {
         CompareMode::PathSize,
         true,
         vec![],
+        &mut noop,
     )
     .unwrap();
 
