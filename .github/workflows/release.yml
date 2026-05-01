@@ -159,20 +159,18 @@ jobs:
           Folder comparison, checksums, and report export run locally on your machine.
           EOF
 
-      - name: Create or update draft release
+      - name: Create or update release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \
-              --draft=true \
               --title "SEDER DIT Tool ${RELEASE_TAG}" \
               --notes-file RELEASE_NOTES.md
             gh release upload "$RELEASE_TAG" release-assets/* --clobber
           else
             gh release create "$RELEASE_TAG" release-assets/* \
-              --draft \
               --target "$GITHUB_SHA" \
               --title "SEDER DIT Tool ${RELEASE_TAG}" \
               --notes-file RELEASE_NOTES.md
