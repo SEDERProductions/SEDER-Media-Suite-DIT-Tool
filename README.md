@@ -1,4 +1,4 @@
-# SEDER DIT Tool
+# SEDER Media Suite DIT Tool
 
 [![CI](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/actions/workflows/ci.yml/badge.svg)](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/actions/workflows/ci.yml)
 [![Latest Release](https://img.shields.io/github/v/release/SEDERProductions/SEDER-Media-Suite-DIT-Tool?label=latest%20release)](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/releases/latest)

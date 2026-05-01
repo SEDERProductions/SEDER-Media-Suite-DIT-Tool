@@ -93,7 +93,7 @@ jobs:
             -DBUILD_TESTING=ON
 
       - name: Build
-        run: cmake --build qt/build --config Release
+        run: cmake --build qt/build --config Release --verbose
 
       - name: Test
         run: ctest --test-dir qt/build --output-on-failure -C Release
