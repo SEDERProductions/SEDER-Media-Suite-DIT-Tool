@@ -29,8 +29,7 @@ set(RUST_SOURCES
 
 add_custom_command(
     OUTPUT "${RUST_STATICLIB}"
-    COMMAND "${CMAKE_COMMAND}" -E env CARGO_TARGET_DIR="${RUST_TARGET_DIR}"
-            cargo build --manifest-path "${RUST_MANIFEST}" --release
+    COMMAND cargo build --manifest-path "${RUST_MANIFEST}" --release --target-dir "${RUST_TARGET_DIR}"
     DEPENDS "${RUST_MANIFEST}" ${RUST_SOURCES}
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
     COMMENT "Building SEDER DIT Rust core"
