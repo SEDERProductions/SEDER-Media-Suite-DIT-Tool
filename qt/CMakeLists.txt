@@ -85,8 +85,6 @@ set_target_properties(seder-media-suite-dit-qt PROPERTIES
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
 )
 
-qt_finalize_executable(seder-media-suite-dit-qt)
-
 install(TARGETS seder-media-suite-dit-qt
     BUNDLE DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

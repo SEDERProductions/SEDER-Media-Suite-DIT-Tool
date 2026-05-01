@@ -2,6 +2,7 @@
 
 #include <QString>
 #include <QVector>
+#include <QMetaType>
 #include <QtGlobal>
 
 struct DitRequestData {
