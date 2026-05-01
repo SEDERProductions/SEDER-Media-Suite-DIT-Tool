@@ -31,7 +31,7 @@ cmake -S "$ROOT_DIR/qt" -B "$BUILD_DIR" -G "$GENERATOR" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
   -DBUILD_TESTING=OFF \
-  "${QT_PREFIX_ARGS[@]}"
+  ${QT_PREFIX_ARGS[@]+"${QT_PREFIX_ARGS[@]}"}
 cmake --build "$BUILD_DIR" --config Release
 cmake --install "$BUILD_DIR" --config Release
 
