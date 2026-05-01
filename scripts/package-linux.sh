@@ -57,8 +57,7 @@ if [[ -n "$LINUXDEPLOYQT_BIN" && -x "$LINUXDEPLOYQT_BIN" ]]; then
   if [[ -n "$appimage" ]]; then
     mv "$appimage" "$ARTIFACT_DIR/seder-dit-tool-v${VERSION}-linux-x64.AppImage"
   else
-    echo "linuxdeployqt ran but did not produce an AppImage" >&2
-    exit 1
+    echo "linuxdeployqt ran but did not produce an AppImage; continuing with tarball only" >&2
   fi
 fi
 
