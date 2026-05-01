@@ -78,6 +78,12 @@ target_link_libraries(seder-media-suite-dit-qt
         seder_dit_rust
 )
 
+if(WIN32)
+    # Rust std uses Nt* APIs which live in ntdll.dll; when consuming the Rust
+    # staticlib from an MSVC-linked Qt executable we must link its import lib.
+    target_link_libraries(seder-media-suite-dit-qt PRIVATE ntdll)
+endif()
+
 set_target_properties(seder-media-suite-dit-qt PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER com.sederproductions.media-suite.dit-qt
     MACOSX_BUNDLE_BUNDLE_NAME "SEDER Media Suite DIT"
