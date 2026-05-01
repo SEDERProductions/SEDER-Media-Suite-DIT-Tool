@@ -93,7 +93,18 @@ jobs:
             -DBUILD_TESTING=ON
 
       - name: Build
-        run: cmake --build qt/build --config Release --verbose
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build qt/build --config Release --verbose 2>&1 | tee qt/build/build.log
+
+      - name: Upload build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-build-log-${{ matrix.name }}
+          path: qt/build/build.log
+          if-no-files-found: warn
 
       - name: Test
         run: ctest --test-dir qt/build --output-on-failure -C Release
