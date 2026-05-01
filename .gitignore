@@ -1,4 +1,13 @@
 .DS_Store
+
+# Build outputs
+qt/build/
+qt/_tmp_rust_target/
+qt/**/rust-target/
+**/rust-target/
+target/
+
+.DS_Store
 Thumbs.db
 desktop.ini
 
