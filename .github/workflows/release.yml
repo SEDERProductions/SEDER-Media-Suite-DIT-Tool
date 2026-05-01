@@ -91,11 +91,21 @@ jobs:
           echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
 
       - name: Package
-        shell: ${{ matrix.shell }}
+        if: runner.os != 'Windows'
+        shell: bash
         env:
           VERSION: ${{ env.RELEASE_TAG }}
           CMAKE_GENERATOR: ${{ runner.os == 'Windows' && 'Visual Studio 17 2022' || 'Ninja' }}
           CMAKE_GENERATOR_PLATFORM: ${{ runner.os == 'Windows' && 'x64' || '' }}
+        run: ${{ matrix.package_command }}
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ env.RELEASE_TAG }}
+          CMAKE_GENERATOR: Visual Studio 17 2022
+          CMAKE_GENERATOR_PLATFORM: x64
         run: ${{ matrix.package_command }}
 
       - name: Upload intermediate artifact
