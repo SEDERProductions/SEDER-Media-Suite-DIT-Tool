@@ -9,7 +9,7 @@ Local-first DIT folder verification for source and destination offloads. The app
 
 ## Download
 
-**[Download the latest release](https://github.com/sederproductions/seder-dit-tool/releases/latest)**
+**[Download the latest release](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/releases/latest)**
 
 | Platform | Asset |
 | --- | --- |
