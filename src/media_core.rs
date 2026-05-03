@@ -53,6 +53,7 @@ pub struct FolderEntry {
 pub struct ScanResult {
     pub files: BTreeMap<String, FileEntry>,
     pub folders: BTreeSet<String>,
+    // u64: max ~18 EB, adequate for any real storage device
     pub total_size: u64,
 }
 
@@ -131,23 +132,91 @@ fn is_hidden_or_system(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn should_ignore(path: &Path, options: &ScanOptions) -> bool {
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or_default();
-    (options.ignore_hidden_system && is_hidden_or_system(path))
-        || options
-            .ignore_patterns
-            .iter()
-            .any(|pattern| name == pattern || path.to_string_lossy().contains(pattern))
+#[derive(Debug, Clone)]
+struct IgnorePattern {
+    raw: String,
+    is_glob: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct IgnoreMatcher {
+    patterns: Vec<IgnorePattern>,
+}
+
+impl IgnoreMatcher {
+    fn new(patterns: &[String]) -> Self {
+        Self {
+            patterns: patterns
+                .iter()
+                .map(|raw| IgnorePattern {
+                    is_glob: raw.contains('*') || raw.contains('?'),
+                    raw: raw.clone(),
+                })
+                .collect(),
+        }
+    }
+
+    fn matches(&self, path: &Path) -> bool {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        let normalized = path.to_string_lossy().replace('\\', "/");
+        self.patterns.iter().any(|pattern| {
+            if pattern.is_glob {
+                wildcard_match(&pattern.raw, name) || wildcard_match(&pattern.raw, &normalized)
+            } else {
+                name == pattern.raw
+            }
+        })
+    }
+}
+
+fn wildcard_match(pattern: &str, text: &str) -> bool {
+    let pattern = pattern.chars().collect::<Vec<_>>();
+    let text = text.chars().collect::<Vec<_>>();
+    let mut previous = vec![false; text.len() + 1];
+    previous[0] = true;
+
+    for pattern_char in pattern {
+        let mut next = vec![false; text.len() + 1];
+        match pattern_char {
+            '*' => {
+                next[0] = previous[0];
+                for index in 1..=text.len() {
+                    next[index] = next[index - 1] || previous[index];
+                }
+            }
+            '?' => {
+                for (slot, value) in next.iter_mut().skip(1).zip(previous.iter()) {
+                    *slot = *value;
+                }
+            }
+            literal => {
+                for index in 1..=text.len() {
+                    next[index] = previous[index - 1] && literal == text[index - 1];
+                }
+            }
+        }
+        previous = next;
+    }
+
+    previous[text.len()]
+}
+
+fn should_ignore(path: &Path, options: &ScanOptions, matcher: &IgnoreMatcher) -> bool {
+    (options.ignore_hidden_system && is_hidden_or_system(path)) || matcher.matches(path)
 }
 
 fn relative(root: &Path, path: &Path) -> Result<String> {
-    Ok(path
-        .strip_prefix(root)?
-        .to_string_lossy()
-        .replace('\\', "/"))
+    let stripped = path.strip_prefix(root)?;
+    let utf8 = stripped.to_str().with_context(|| {
+        format!(
+            "Path contains invalid UTF-8 and cannot be compared: {}",
+            path.display()
+        )
+    })?;
+    Ok(utf8.replace('\\', "/"))
 }
 
 pub fn checksum_file_set(path: &Path) -> Result<FileChecksums> {
@@ -197,6 +266,7 @@ where
     if !root.is_dir() {
         anyhow::bail!("Folder does not exist: {}", root.display());
     }
+    let matcher = IgnoreMatcher::new(&options.ignore_patterns);
     let mut result = ScanResult::default();
     let mut processed_files = 0_u64;
     let mut processed_bytes = 0_u64;
@@ -208,10 +278,10 @@ where
     });
     for entry in WalkDir::new(root)
         .into_iter()
-        .filter_entry(|entry| entry.depth() == 0 || !should_ignore(entry.path(), options))
+        .filter_entry(|entry| entry.depth() == 0 || !should_ignore(entry.path(), options, &matcher))
     {
         let entry = entry?;
-        if entry.depth() == 0 || should_ignore(entry.path(), options) {
+        if entry.depth() == 0 || should_ignore(entry.path(), options, &matcher) {
             continue;
         }
         let rel = relative(root, entry.path())?;
@@ -219,12 +289,20 @@ where
             result.folders.insert(rel);
             continue;
         }
-        if entry.file_type().is_file() {
-            let metadata = entry.metadata()?;
+        // Treat regular files and symlinks as files; std::fs::metadata follows
+        // symlinks so size and mtime come from the resolved target.
+        if entry.file_type().is_file() || entry.file_type().is_symlink() {
+            let metadata = std::fs::metadata(entry.path()).with_context(|| {
+                format!(
+                    "Unable to stat {} (broken symlink?)",
+                    entry.path().display()
+                )
+            })?;
             let modified = metadata
                 .modified()
+                .with_context(|| format!("Cannot read mtime for {rel}"))?
+                .duration_since(UNIX_EPOCH)
                 .ok()
-                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
                 .map(|d| d.as_secs());
             let size = metadata.len();
             if options.checksum {
@@ -641,7 +719,8 @@ pub fn dit_mhl(report: &DitReport) -> String {
         .iter()
         .filter(|row| row.status != FileStatus::OnlyInA && row.xxh64_b.is_some())
         .collect::<Vec<_>>();
-    if !rows.is_empty() {
+    let has_hashes = !rows.is_empty();
+    if has_hashes {
         out.push_str("  <hashes>\n");
     }
     for row in rows {
@@ -661,12 +740,7 @@ pub fn dit_mhl(report: &DitReport) -> String {
         ));
         out.push_str("    </hash>\n");
     }
-    if report
-        .comparison
-        .rows
-        .iter()
-        .any(|row| row.status != FileStatus::OnlyInA && row.xxh64_b.is_some())
-    {
+    if has_hashes {
         out.push_str("  </hashes>\n");
     }
     out.push_str("</hashlist>\n");

@@ -41,7 +41,14 @@ if [[ -z "$APP_BUNDLE" ]]; then
   exit 1
 fi
 
-ARTIFACT="$ARTIFACT_DIR/seder-dit-tool-v${VERSION}-${PLATFORM}-unsigned.zip"
+codesign --force --deep --options runtime \
+  --identifier com.sederproductions.media-suite.dit-qt \
+  --sign - \
+  --timestamp=none \
+  "$APP_BUNDLE"
+codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+
+ARTIFACT="$ARTIFACT_DIR/seder-dit-tool-v${VERSION}-${PLATFORM}.zip"
 rm -f "$ARTIFACT"
 ditto -c -k --keepParent "$APP_BUNDLE" "$ARTIFACT"
 

@@ -41,8 +41,22 @@ add_library(seder_dit_rust STATIC IMPORTED GLOBAL)
 set_target_properties(seder_dit_rust PROPERTIES IMPORTED_LOCATION "${RUST_STATICLIB}")
 add_dependencies(seder_dit_rust seder_dit_rust_build)
 
+set(SEDER_APP_ICON_MACOS "${CMAKE_CURRENT_SOURCE_DIR}/../assets/icon.icns")
+set(SEDER_APP_ICON_WINDOWS_RC "${CMAKE_CURRENT_SOURCE_DIR}/app.rc")
+
+set(SEDER_APP_PLATFORM_SOURCES "")
+if(APPLE)
+    set_source_files_properties("${SEDER_APP_ICON_MACOS}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION "Resources")
+    list(APPEND SEDER_APP_PLATFORM_SOURCES "${SEDER_APP_ICON_MACOS}")
+endif()
+if(WIN32)
+    list(APPEND SEDER_APP_PLATFORM_SOURCES "${SEDER_APP_ICON_WINDOWS_RC}")
+endif()
+
 qt_add_executable(seder-media-suite-dit-qt
     MACOSX_BUNDLE
+    WIN32
     cpp/AppController.cpp
     cpp/AppController.h
     cpp/DitCompareWorker.cpp
@@ -58,6 +72,7 @@ qt_add_executable(seder-media-suite-dit-qt
     cpp/ThemeController.h
     cpp/main.cpp
     cpp/seder_ffi.h
+    ${SEDER_APP_PLATFORM_SOURCES}
 )
 
 qt_add_qml_module(seder-media-suite-dit-qt
@@ -88,6 +103,7 @@ set_target_properties(seder-media-suite-dit-qt PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER com.sederproductions.media-suite.dit-qt
     MACOSX_BUNDLE_BUNDLE_NAME "SEDER Media Suite DIT"
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+    MACOSX_BUNDLE_ICON_FILE icon.icns
 )
 
 install(TARGETS seder-media-suite-dit-qt

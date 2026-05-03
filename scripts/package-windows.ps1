@@ -37,6 +37,29 @@ cmake @ConfigureArgs
 cmake --build $BuildDir --config Release
 cmake --install $BuildDir --config Release
 
+# Ad-hoc self-signed Authenticode signature for SEDER Productions identity.
+# Does NOT clear SmartScreen — users still see "More info -> Run anyway" the
+# first time. The cert is regenerated each run; for a stable cert across
+# releases, store a .pfx in repo secrets and import it here instead.
+$Cert = New-SelfSignedCertificate `
+  -Subject "CN=SEDER Productions, O=SEDER Productions, C=GB" `
+  -Type CodeSigningCert `
+  -KeyUsage DigitalSignature `
+  -KeyAlgorithm RSA -KeyLength 2048 `
+  -CertStoreLocation Cert:\CurrentUser\My `
+  -NotAfter (Get-Date).AddYears(5)
+
+$SignTool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -match "x64\\signtool.exe$" } |
+    Select-Object -First 1).FullName
+if (-not $SignTool) { $SignTool = "signtool.exe" }
+
+Get-ChildItem -Path $InstallDir -Recurse -Filter *.exe | ForEach-Object {
+    & $SignTool sign /fd SHA256 /sha1 $Cert.Thumbprint `
+        /tr http://timestamp.digicert.com /td SHA256 $_.FullName
+    if ($LASTEXITCODE -ne 0) { throw "signtool failed for $($_.FullName)" }
+}
+
 $Artifact = Join-Path $ArtifactDir "seder-dit-tool-v$Version-windows-x64.zip"
 Remove-Item -Force $Artifact -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $InstallDir "*") -DestinationPath $Artifact

@@ -301,6 +301,105 @@ fn parses_comma_and_newline_ignore_patterns() {
 }
 
 #[test]
+fn compare_scans_both_empty() {
+    let empty = ScanResult::default();
+    let report = compare_scans(&empty, &empty, CompareMode::PathSize);
+    assert!(report.rows.is_empty());
+    assert_eq!(pass_fail(&report), "PASS");
+}
+
+#[test]
+fn pathsize_modified_mtime_difference_is_changed() {
+    let a = tempdir().unwrap();
+    let b = tempdir().unwrap();
+    write(&a.path().join("clip.mov"), "abcd");
+    write(&b.path().join("clip.mov"), "abcd");
+    let target = b.path().join("clip.mov");
+    // Bump mtime on side B by ~1 hour into the past so the two mtimes differ.
+    let new_time = std::time::SystemTime::now() - std::time::Duration::from_secs(3_600);
+    fs::File::open(&target)
+        .unwrap()
+        .set_modified(new_time)
+        .unwrap();
+
+    let mut noop = |_| {};
+    let report = compare_folders_with_progress(
+        a.path(),
+        b.path(),
+        CompareMode::PathSizeModified,
+        true,
+        vec![],
+        &mut noop,
+    )
+    .unwrap();
+    assert_eq!(report.rows[0].status, FileStatus::Changed);
+}
+
+#[test]
+fn glob_ignore_pattern_matches_extensions_only() {
+    let dir = tempdir().unwrap();
+    write(&dir.path().join("foo.tmp"), "x");
+    write(&dir.path().join("foo.txt"), "y");
+    let scan = scan_folder(
+        dir.path(),
+        &ScanOptions {
+            ignore_hidden_system: false,
+            ignore_patterns: vec!["*.tmp".into()],
+            checksum: false,
+        },
+    )
+    .unwrap();
+    assert!(!scan.files.contains_key("foo.tmp"));
+    assert!(scan.files.contains_key("foo.txt"));
+}
+
+#[test]
+fn literal_ignore_pattern_does_not_substring_match() {
+    let dir = tempdir().unwrap();
+    write(&dir.path().join("database/x.txt"), "x");
+    let scan = scan_folder(
+        dir.path(),
+        &ScanOptions {
+            ignore_hidden_system: false,
+            // Literal "data" must NOT match "database/x.txt" — only basename
+            // equality, which never holds for this directory tree.
+            ignore_patterns: vec!["data".into()],
+            checksum: false,
+        },
+    )
+    .unwrap();
+    assert!(scan.files.contains_key("database/x.txt"));
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_appears_as_file_row() {
+    use std::os::unix::fs::symlink;
+    let a = tempdir().unwrap();
+    let b = tempdir().unwrap();
+    let target = a.path().join("real.mov");
+    write(&target, "abcd");
+    write(&b.path().join("real.mov"), "abcd");
+    // Place a symlink in side A pointing to its sibling real file.
+    symlink(&target, a.path().join("aliased.mov")).unwrap();
+
+    let mut noop = |_| {};
+    let report = compare_folders_with_progress(
+        a.path(),
+        b.path(),
+        CompareMode::PathSize,
+        true,
+        vec![],
+        &mut noop,
+    )
+    .unwrap();
+    assert!(report
+        .rows
+        .iter()
+        .any(|row| row.relative_path == "aliased.mov"));
+}
+
+#[test]
 fn progress_reports_scan_and_completion_phases() {
     let a = tempdir().unwrap();
     let b = tempdir().unwrap();

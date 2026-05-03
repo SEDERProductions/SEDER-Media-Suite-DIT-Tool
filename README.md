@@ -1,7 +1,7 @@
 # SEDER Media Suite DIT Tool
 
-[![CI](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/actions/workflows/ci.yml/badge.svg)](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/actions/workflows/ci.yml)
-[![Latest Release](https://img.shields.io/github/v/release/SEDERProductions/SEDER-Media-Suite-DIT-Tool?label=latest%20release)](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/releases/latest)
+[![CI](https://github.com/sederproductions/seder-dit-tool/actions/workflows/ci.yml/badge.svg)](https://github.com/sederproductions/seder-dit-tool/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/sederproductions/seder-dit-tool?label=latest%20release)](https://github.com/sederproductions/seder-dit-tool/releases/latest)
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 [![Local Processing](https://img.shields.io/badge/processing-local--only-1f7a4d)](#privacy)
 
@@ -13,17 +13,17 @@ Local-first DIT folder verification for source and destination offloads. The app
 
 | Platform | Asset |
 | --- | --- |
-| macOS Apple Silicon | `seder-dit-tool-v0.1.0-macos-arm64-unsigned.zip` |
-| macOS Intel | `seder-dit-tool-v0.1.0-macos-x64-unsigned.zip` |
+| macOS Apple Silicon | `seder-dit-tool-v0.1.0-macos-arm64.zip` |
+| macOS Intel | `seder-dit-tool-v0.1.0-macos-x64.zip` |
 | Windows x64 | `seder-dit-tool-v0.1.0-windows-x64.zip` |
 | Linux x64 | `seder-dit-tool-v0.1.0-linux-x64.AppImage` |
 | Linux fallback | `seder-dit-tool-v0.1.0-linux-x64.tar.gz` |
 
 Download `SHA256SUMS.txt` from the same release and verify the file before launching.
 
-### Unsigned Builds
+### Signing
 
-The first public binaries are unsigned. macOS and Windows may show extra launch warnings. This is expected for `v0.1.0`; code signing and notarization are intentionally not required for the first open-source release.
+Builds are ad-hoc signed by SEDER Productions for tamper-detection. macOS may still ask you to right-click → Open the first time, and Windows SmartScreen will show a "More info → Run anyway" prompt — Apple notarization and a paid Windows Authenticode certificate are not configured.
 
 ## Features
 
