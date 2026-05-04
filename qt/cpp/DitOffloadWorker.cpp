@@ -54,10 +54,10 @@ void DitOffloadWorker::run()
     for (const auto &dest : m_request.destinations) {
         destPaths.append(dest.path.toUtf8());
         destLabels.append(dest.label.toUtf8());
-    }
-    for (int i = 0; i < destConfigs.size(); ++i) {
-        destConfigs[i].path = destPaths[i].constData();
-        destConfigs[i].label = destLabels[i].isEmpty() ? nullptr : destLabels[i].constData();
+        SederDestinationConfig cfg{};
+        cfg.path = destPaths.last().constData();
+        cfg.label = destLabels.last().isEmpty() ? nullptr : destLabels.last().constData();
+        destConfigs.append(cfg);
     }
 
     QByteArray projectName = m_request.projectName.toUtf8();

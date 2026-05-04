@@ -3,6 +3,7 @@
 #include <QFileDialog>
 #include <QSaveFile>
 #include <QThread>
+#include <functional>
 
 namespace {
 
