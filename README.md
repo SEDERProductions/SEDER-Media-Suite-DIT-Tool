@@ -9,15 +9,15 @@ Local-first DIT folder verification for source and destination offloads. The app
 
 ## Download
 
-**[Download the latest release](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/releases/latest)**
+**[Download the latest release](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/releases/latest)** (see [Releases](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/releases) for all versions)
 
 | Platform | Asset |
 | --- | --- |
-| macOS Apple Silicon | `seder-dit-tool-v0.1.0-macos-arm64.zip` |
-| macOS Intel | `seder-dit-tool-v0.1.0-macos-x64.zip` |
-| Windows x64 | `seder-dit-tool-v0.1.0-windows-x64.zip` |
-| Linux x64 | `seder-dit-tool-v0.1.0-linux-x64.AppImage` |
-| Linux fallback | `seder-dit-tool-v0.1.0-linux-x64.tar.gz` |
+| macOS Apple Silicon | `seder-dit-tool-macos-arm64.zip` |
+| macOS Intel | `seder-dit-tool-macos-x64.zip` |
+| Windows x64 | `seder-dit-tool-windows-x64.zip` |
+| Linux x64 | `seder-dit-tool-linux-x64.AppImage` |
+| Linux fallback | `seder-dit-tool-linux-x64.tar.gz` |
 
 Download `SHA256SUMS.txt` from the same release and verify the file before launching.
 
