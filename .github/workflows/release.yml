@@ -46,15 +46,18 @@ jobs:
           echo "new_tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
           echo "Latest: $LATEST → New: $NEW_TAG"
 
+      - uses: dtolnay/rust-toolchain@stable
+
       - name: Update Cargo.toml and push tag
         env:
           NEW_TAG: ${{ steps.bump.outputs.new_tag }}
         run: |
           NEW_VERSION="${NEW_TAG#v}"
           sed -i "s/^version = \"[^\"]*\"/version = \"$NEW_VERSION\"/" Cargo.toml
+          cargo update -w
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml
+          git add Cargo.toml Cargo.lock
           git commit -m "chore: bump version to ${NEW_TAG}"
           git tag "$NEW_TAG"
           git push origin HEAD:main
