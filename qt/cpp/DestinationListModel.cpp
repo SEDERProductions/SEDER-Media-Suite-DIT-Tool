@@ -79,10 +79,3 @@ void DestinationListModel::clear()
     endResetModel();
     emit countChanged();
 }
-
-QStringList DestinationListModel::paths() const
-{
-    QStringList result;
-    for (auto *item : m_items) result.append(item->path());
-    return result;
-}

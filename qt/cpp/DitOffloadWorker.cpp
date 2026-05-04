@@ -51,6 +51,8 @@ void DitOffloadWorker::run()
     QVector<QByteArray> destPaths;
     QVector<QByteArray> destLabels;
     QVector<SederDestinationConfig> destConfigs;
+    destPaths.reserve(m_request.destinations.size());
+    destLabels.reserve(m_request.destinations.size());
     for (const auto &dest : m_request.destinations) {
         destPaths.append(dest.path.toUtf8());
         destLabels.append(dest.label.toUtf8());
@@ -82,27 +84,49 @@ void DitOffloadWorker::run()
     char *errorOut = nullptr;
     OffloadReportHandle *handle = seder_offload_start(&req, progressCallback, this, &errorOut);
 
-    if (handle) {
-        seder_report_free(handle);
-    }
-
-    if (m_cancelToken.loadRelaxed() != 0) {
-        emit cancelled();
-        if (errorOut) seder_string_free(errorOut);
-        return;
-    }
-
-    if (!handle && errorOut) {
-        QString msg = QString::fromUtf8(errorOut);
-        seder_string_free(errorOut);
-        emit failed(msg);
-        return;
-    }
-
     if (!handle) {
+        if (m_cancelToken.loadRelaxed() != 0) {
+            if (errorOut) seder_string_free(errorOut);
+            emit cancelled();
+            return;
+        }
+        if (errorOut) {
+            QString msg = QString::fromUtf8(errorOut);
+            seder_string_free(errorOut);
+            emit failed(msg);
+            return;
+        }
         emit failed(QStringLiteral("Unknown offload error"));
         return;
     }
 
-    emit finished();
+    if (m_cancelToken.loadRelaxed() != 0) {
+        seder_report_free(handle);
+        emit cancelled();
+        return;
+    }
+
+    FinalReportData report;
+    report.txtExport = QString::fromUtf8(seder_report_export_txt(handle));
+    report.csvExport = QString::fromUtf8(seder_report_export_csv(handle));
+    report.mhlExport = QString::fromUtf8(seder_report_export_mhl(handle));
+
+    uint64_t totalFiles = 0, totalSize = 0;
+    size_t destCount = 0;
+    seder_report_summary(handle, &totalFiles, &totalSize, &destCount);
+    report.totalFiles = static_cast<quint64>(totalFiles);
+    report.totalSize = static_cast<quint64>(totalSize);
+
+    report.allPass = true;
+    for (size_t i = 0; i < destCount; ++i) {
+        uint32_t state = 0;
+        seder_report_dest_state(handle, i, &state, nullptr, nullptr, nullptr, nullptr);
+        if (state != 4) {
+            report.allPass = false;
+            break;
+        }
+    }
+
+    seder_report_free(handle);
+    emit finished(report);
 }

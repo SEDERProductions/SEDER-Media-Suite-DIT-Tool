@@ -20,7 +20,6 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 anyhow = "1.0"
 blake3 = "1.5"
-twox-hash = { version = "2.1", default-features = false, features = ["xxhash64"] }
 walkdir = "2.5"
 crossbeam-channel = "0.5"
 

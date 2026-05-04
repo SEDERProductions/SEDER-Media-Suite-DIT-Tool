@@ -1,5 +1,10 @@
 use std::path::PathBuf;
 
+pub mod engine;
+pub mod progress;
+pub mod verify;
+pub mod volume;
+
 #[derive(Debug, Clone)]
 pub struct DestinationConfig {
     pub path: PathBuf,
@@ -99,8 +104,10 @@ pub struct OffloadProgress {
 
 #[derive(Debug, Clone)]
 pub struct OffloadReport {
+    pub source_path: String,
     pub metadata: ProjectMetadata,
     pub source_scan: SourceScan,
     pub destination_results: Vec<DestinationResult>,
     pub timestamp: String,
+    pub warnings: Vec<String>,
 }

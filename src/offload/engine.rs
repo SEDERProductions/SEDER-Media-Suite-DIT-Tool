@@ -249,7 +249,7 @@ fn copy_file_fanout(
                     ChunkMessage::End => break,
                 }
             }
-            file.sync_all()?;
+            file.sync_data()?;
             Ok(hasher.finalize().to_hex().to_string())
         });
         handles.push(handle);
@@ -301,7 +301,7 @@ fn copy_file_fanout(
 fn verify_file(dest_path: &Path, expected_blake3: &str) -> anyhow::Result<()> {
     let mut file = File::open(dest_path)?;
     let mut hasher = blake3::Hasher::new();
-    let mut buf = [0u8; 64 * 1024];
+    let mut buf = vec![0u8; CHUNK_SIZE];
 
     loop {
         let n = file.read(&mut buf)?;
@@ -353,9 +353,145 @@ fn should_ignore(rel_path: &str, patterns: &[String]) -> bool {
         if pat.is_empty() {
             continue;
         }
-        if basename == pat || rel_path.contains(pat) {
+        if glob_match(pat, &basename) || glob_match(pat, rel_path) {
             return true;
         }
     }
     false
+}
+
+fn glob_match(pattern: &str, text: &str) -> bool {
+    if !pattern.contains('*') {
+        return text == pattern;
+    }
+    let parts: Vec<&str> = pattern.split('*').collect();
+    if parts.len() == 1 {
+        return text == pattern;
+    }
+    if parts[0].is_empty() {
+        if parts.len() == 2 {
+            return text.ends_with(parts[1]);
+        }
+        if parts.last().map_or(true, |p| p.is_empty()) {
+            let middle = &pattern[1..pattern.len() - 1];
+            return text.contains(middle);
+        }
+    }
+    if parts.last().map_or(false, |p| p.is_empty()) {
+        return text.starts_with(parts[0]);
+    }
+    if parts.len() == 3 && parts[0].is_empty() && parts[2].is_empty() {
+        return text.contains(parts[1]);
+    }
+    let mut pos = 0;
+    for (i, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+        match text[pos..].find(part) {
+            Some(idx) => {
+                if i == 0 && idx != 0 {
+                    return false;
+                }
+                pos += idx + part.len();
+            }
+            None => return false,
+        }
+    }
+    if !pattern.ends_with('*') && pos != text.len() {
+        return false;
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glob_exact_match() {
+        assert!(glob_match("hello.txt", "hello.txt"));
+        assert!(!glob_match("hello.txt", "hello2.txt"));
+    }
+
+    #[test]
+    fn glob_prefix_wildcard() {
+        assert!(glob_match("*.txt", "hello.txt"));
+        assert!(glob_match("*.log", "error.log"));
+        assert!(!glob_match("*.txt", "hello.log"));
+    }
+
+    #[test]
+    fn glob_suffix_wildcard() {
+        assert!(glob_match("hello.*", "hello.txt"));
+        assert!(glob_match("hello.*", "hello.log"));
+        assert!(!glob_match("hello.*", "world.txt"));
+    }
+
+    #[test]
+    fn glob_contains_wildcard() {
+        assert!(glob_match("*test*", "mytestfile"));
+        assert!(glob_match("*tmp*", "temp_tmp_file"));
+        assert!(!glob_match("*test*", "nothing"));
+    }
+
+    #[test]
+    fn glob_both_ends_wildcard() {
+        assert!(glob_match("*middle*", "amiddleb"));
+        assert!(!glob_match("*middle*", "nothing"));
+    }
+
+    #[test]
+    fn should_ignore_basename_glob() {
+        let patterns = vec!["*.txt".to_string()];
+        assert!(should_ignore("folder/hello.txt", &patterns));
+        assert!(!should_ignore("folder/hello.log", &patterns));
+    }
+
+    #[test]
+    fn should_ignore_path_wildcard() {
+        let patterns = vec!["*temp*".to_string()];
+        assert!(should_ignore("some/temp/file.txt", &patterns));
+    }
+
+    #[test]
+    fn should_ignore_empty_patterns() {
+        let patterns: Vec<String> = vec![];
+        assert!(!should_ignore("anything.txt", &patterns));
+    }
+
+    #[test]
+    fn is_hidden_dotfile() {
+        use std::path::Path;
+        assert!(is_hidden_or_system(Path::new(".hidden")));
+        assert!(!is_hidden_or_system(Path::new("visible")));
+    }
+
+    #[test]
+    fn is_hidden_system_folders() {
+        use std::path::Path;
+        assert!(is_hidden_or_system(Path::new("$RECYCLE.BIN/something")));
+        assert!(is_hidden_or_system(Path::new("System Volume Information/something")));
+    }
+
+    #[test]
+    fn verify_file_matching_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.bin");
+        let data = b"hello world test data for verification\n";
+        std::fs::write(&path, data).unwrap();
+
+        let hash = blake3::hash(data).to_hex().to_string();
+        assert!(verify_file(&path, &hash).is_ok());
+    }
+
+    #[test]
+    fn verify_file_mismatched_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.bin");
+        std::fs::write(&path, b"correct data").unwrap();
+
+        let wrong_hash = blake3::hash(b"different data").to_hex().to_string();
+        assert!(verify_file(&path, &wrong_hash).is_err());
+    }
 }

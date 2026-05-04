@@ -29,7 +29,6 @@ public:
     Q_INVOKABLE void addDestination(const QString &path, const QString &label = QString());
     Q_INVOKABLE void removeDestination(int index);
     Q_INVOKABLE void clear();
-    Q_INVOKABLE QStringList paths() const;
 
     QVector<DestinationItem *> items() const { return m_items; }
 

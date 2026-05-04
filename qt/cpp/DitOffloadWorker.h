@@ -41,6 +41,15 @@ struct OffloadProgressData {
     QVector<DestinationProgressData> destinations;
 };
 
+struct FinalReportData {
+    QString txtExport;
+    QString csvExport;
+    QString mhlExport;
+    quint64 totalFiles = 0;
+    quint64 totalSize = 0;
+    bool allPass = false;
+};
+
 class DitOffloadWorker final : public QObject {
     Q_OBJECT
 
@@ -54,7 +63,7 @@ public slots:
 
 signals:
     void progress(const OffloadProgressData &progress);
-    void finished();
+    void finished(const FinalReportData &report);
     void failed(const QString &message);
     void cancelled();
 

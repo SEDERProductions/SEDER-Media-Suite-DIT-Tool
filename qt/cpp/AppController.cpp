@@ -142,11 +142,16 @@ void AppController::startOffload()
             }
         }
     });
-    connect(worker, &DitOffloadWorker::finished, this, [this] {
+    connect(worker, &DitOffloadWorker::finished, this, [this](const FinalReportData &report) {
         setBusy(false);
         setOverallProgress(1.0);
         setStatusText(QStringLiteral("Offload complete."));
-        setPass(true);
+        setPass(report.allPass);
+        m_totalFiles = report.totalFiles;
+        m_totalSize = report.totalSize;
+        m_txtExport = report.txtExport;
+        m_csvExport = report.csvExport;
+        m_mhlExport = report.mhlExport;
         m_canExport = true;
         emit exportStateChanged();
         emit summaryChanged();
@@ -166,7 +171,7 @@ void AppController::startOffload()
         setPass(false);
         appendLog(QStringLiteral("Offload cancelled by user."));
     });
-    connect(worker, &DitOffloadWorker::finished, thread, &QThread::quit);
+    connect(worker, &DitOffloadWorker::finished, thread, [thread](const FinalReportData &) { thread->quit(); });
     connect(worker, &DitOffloadWorker::failed, thread, &QThread::quit);
     connect(worker, &DitOffloadWorker::cancelled, thread, &QThread::quit);
     connect(thread, &QThread::finished, worker, &QObject::deleteLater);
@@ -185,7 +190,6 @@ void AppController::cancelOffload()
 
 void AppController::exportTxt()
 {
-    // TODO: Wire up to actual report handle
     writeExport(tr("Export TXT Report"), QStringLiteral("seder-dit-report.txt"), m_txtExport);
 }
 
