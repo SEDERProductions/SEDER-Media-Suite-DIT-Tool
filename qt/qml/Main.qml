@@ -27,6 +27,8 @@ ApplicationWindow {
     readonly property string sans: "Manrope, Helvetica Neue, Helvetica, Arial, sans-serif"
     readonly property var columnWidths: [118, 440, 110, 110, 280, 280]
 
+    property bool metadataExpanded: false
+
     color: bg
 
     function colWidth(column) {
@@ -67,6 +69,7 @@ ApplicationWindow {
         font.family: root.sans
         font.pixelSize: 13
         padding: 8
+        placeholderTextColor: faint
         background: Rectangle {
             color: panelAlt
             border.color: line
@@ -95,50 +98,105 @@ ApplicationWindow {
         }
     }
 
+    component StyledComboBox: ComboBox {
+        id: control
+        font.family: root.sans
+        font.pixelSize: 12
+        contentItem: Text {
+            leftPadding: 8
+            rightPadding: 8
+            text: control.displayText
+            color: ink
+            font: control.font
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        background: Rectangle {
+            color: panelAlt
+            border.color: line
+            radius: 4
+        }
+        popup: Popup {
+            y: control.height
+            width: control.width
+            padding: 1
+            background: Rectangle {
+                color: panelAlt
+                border.color: line
+                radius: 4
+            }
+            contentItem: ListView {
+                clip: true
+                implicitHeight: contentHeight
+                model: control.model
+                currentIndex: control.currentIndex
+                delegate: ItemDelegate {
+                    width: ListView.view.width
+                    contentItem: Text {
+                        text: modelData
+                        color: ink
+                        font: control.font
+                        elide: Text.ElideRight
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    highlighted: control.highlightedIndex === index
+                    background: Rectangle {
+                        color: highlighted ? red : "transparent"
+                        radius: 2
+                    }
+                }
+                ScrollBar.vertical: ScrollBar {}
+            }
+        }
+    }
+
     component MetricBox: Rectangle {
         property string label: ""
         property string value: ""
         property string tone: "neutral"
+        property bool selectable: true
+        signal clicked()
         Layout.fillWidth: true
         Layout.preferredHeight: 58
-        color: panelAlt
-        border.color: line
+        color: filterModel.filter === filterForLabel(label) ? (dark ? "#2a1f1a" : "#f0e6da") : panelAlt
+        border.color: filterModel.filter === filterForLabel(label) ? red : line
         radius: 4
+
+        function filterForLabel(lbl) {
+            if (lbl === "Matching") return 1
+            if (lbl === "Changed") return 2
+            if (lbl === "Only A") return 3
+            if (lbl === "Only B") return 4
+            if (lbl === "Files") return 0
+            return -1
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            enabled: parent.selectable
+            hoverEnabled: true
+            cursorShape: parent.selectable ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: {
+                const f = parent.filterForLabel(parent.label)
+                if (f >= 0) appController.setFilter(f)
+                parent.clicked()
+            }
+        }
+
         Column {
             anchors.fill: parent
             anchors.margins: 9
             spacing: 5
-            MetaLabel { text: label }
+            MetaLabel { text: parent.parent.label }
             Text {
-                text: value
-                color: toneColor(tone)
+                text: parent.parent.value
+                color: toneColor(parent.parent.tone)
                 font.family: root.mono
                 font.pixelSize: 18
                 font.bold: true
                 elide: Text.ElideRight
                 width: parent.width
             }
-        }
-    }
-
-    component FilterButton: Button {
-        property int filterValue: 0
-        property bool selected: filterModel.filter === filterValue
-        height: 30
-        font.family: root.sans
-        font.pixelSize: 12
-        onClicked: appController.setFilter(filterValue)
-        contentItem: Text {
-            text: parent.text
-            color: parent.selected ? "#ffffff" : ink
-            font: parent.font
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
-        background: Rectangle {
-            color: parent.selected ? red : panelAlt
-            border.color: parent.selected ? red : line
-            radius: 4
         }
     }
 
@@ -205,6 +263,10 @@ ApplicationWindow {
                     font.pixelSize: 12
                     font.bold: true
                     Layout.alignment: Qt.AlignHCenter
+                    ToolTip.visible: maRec.containsMouse
+                    ToolTip.text: "Record (Coming Soon)"
+                    ToolTip.delay: 400
+                    MouseArea { id: maRec; anchors.fill: parent; hoverEnabled: true }
                 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: "#5c5143" }
                 Rectangle {
@@ -220,9 +282,18 @@ ApplicationWindow {
                         font.pixelSize: 11
                         font.bold: true
                     }
+                    ToolTip.visible: maDit.containsMouse
+                    ToolTip.text: "Digital Imaging Technician"
+                    ToolTip.delay: 400
+                    MouseArea { id: maDit; anchors.fill: parent; hoverEnabled: true }
                 }
                 Repeater {
-                    model: ["CMP", "RW", "INS", "CAP"]
+                    model: [
+                        { code: "CMP", tip: "Compare (Coming Soon)" },
+                        { code: "RW",  tip: "Rewrite (Coming Soon)" },
+                        { code: "INS", tip: "Inspect (Coming Soon)" },
+                        { code: "CAP", tip: "Capture (Coming Soon)" }
+                    ]
                     Rectangle {
                         Layout.fillWidth: true
                         height: 40
@@ -232,20 +303,38 @@ ApplicationWindow {
                         opacity: 0.42
                         Text {
                             anchors.centerIn: parent
-                            text: modelData
+                            text: modelData.code
                             color: "#ece6d9"
                             font.family: root.mono
                             font.pixelSize: 10
                         }
+                        ToolTip.visible: maSidebar.containsMouse
+                        ToolTip.text: modelData.tip
+                        ToolTip.delay: 400
+                        MouseArea { id: maSidebar; anchors.fill: parent; hoverEnabled: true }
                     }
                 }
                 Item { Layout.fillHeight: true }
-                Text {
-                    text: "LOCAL"
-                    color: "#ada596"
-                    font.family: root.mono
-                    font.pixelSize: 10
+                ColumnLayout {
                     Layout.alignment: Qt.AlignHCenter
+                    spacing: 6
+                    Text {
+                        text: "LOCAL"
+                        color: "#ada596"
+                        font.family: root.mono
+                        font.pixelSize: 10
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+                    StyledComboBox {
+                        Layout.preferredWidth: 62
+                        model: ["Auto", "Lt", "Dk"]
+                        currentIndex: themeController.preference === "dark" ? 2 : (themeController.preference === "light" ? 1 : 0)
+                        onActivated: {
+                            const map = ["system", "light", "dark"]
+                            themeController.preference = map[index]
+                        }
+                        font.pixelSize: 9
+                    }
                 }
             }
         }
@@ -291,57 +380,14 @@ ApplicationWindow {
                         onPick: appController.chooseDestinationFolder()
                     }
 
-                    MetaLabel { text: "02 / Metadata" }
-                    FieldLabel { text: "Project name" }
-                    DenseTextField {
-                        Layout.fillWidth: true
-                        text: appController.projectName
-                        enabled: !appController.busy
-                        onEditingFinished: appController.projectName = text
-                    }
-                    FieldLabel { text: "Shoot date" }
-                    DenseTextField {
-                        Layout.fillWidth: true
-                        text: appController.shootDate
-                        placeholderText: "YYYY-MM-DD"
-                        enabled: !appController.busy
-                        onEditingFinished: appController.shootDate = text
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            FieldLabel { text: "Card name" }
-                            DenseTextField {
-                                Layout.fillWidth: true
-                                text: appController.cardName
-                                enabled: !appController.busy
-                                onEditingFinished: appController.cardName = text
-                            }
-                        }
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            FieldLabel { text: "Camera ID" }
-                            DenseTextField {
-                                Layout.fillWidth: true
-                                text: appController.cameraId
-                                enabled: !appController.busy
-                                onEditingFinished: appController.cameraId = text
-                            }
-                        }
-                    }
-
-                    MetaLabel { text: "03 / Verification" }
+                    MetaLabel { text: "02 / Verification" }
                     FieldLabel { text: "Compare mode" }
-                    ComboBox {
+                    StyledComboBox {
                         Layout.fillWidth: true
                         model: ["Path + Size", "Path + Size + Modified Time", "Path + Size + Checksum"]
                         currentIndex: appController.compareMode
                         enabled: !appController.busy
                         onActivated: appController.compareMode = index
-                        font.family: root.sans
-                        font.pixelSize: 12
                     }
                     CheckBox {
                         text: "Ignore hidden/system files"
@@ -358,6 +404,7 @@ ApplicationWindow {
                         text: appController.ignorePatterns
                         enabled: !appController.busy
                         color: ink
+                        placeholderTextColor: faint
                         font.family: root.mono
                         font.pixelSize: 11
                         wrapMode: TextArea.Wrap
@@ -372,6 +419,75 @@ ApplicationWindow {
                         danger: true
                         enabled: !appController.busy
                         onClicked: appController.startComparison()
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: line }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        RowLayout {
+                            Layout.fillWidth: true
+                            height: 28
+                            spacing: 8
+                            MetaLabel { text: "03 / Metadata" }
+                            Item { Layout.fillWidth: true }
+                            Text {
+                                text: metadataExpanded ? "Collapse ▼" : "Expand ▶"
+                                color: faint
+                                font.family: root.mono
+                                font.pixelSize: 10
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: metadataExpanded = !metadataExpanded
+                                cursorShape: Qt.PointingHandCursor
+                            }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            visible: metadataExpanded
+                            spacing: 8
+                            FieldLabel { text: "Project name" }
+                            DenseTextField {
+                                Layout.fillWidth: true
+                                text: appController.projectName
+                                enabled: !appController.busy
+                                onEditingFinished: appController.projectName = text
+                            }
+                            FieldLabel { text: "Shoot date" }
+                            DenseTextField {
+                                Layout.fillWidth: true
+                                text: appController.shootDate
+                                placeholderText: "YYYY-MM-DD"
+                                enabled: !appController.busy
+                                onEditingFinished: appController.shootDate = text
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    FieldLabel { text: "Card name" }
+                                    DenseTextField {
+                                        Layout.fillWidth: true
+                                        text: appController.cardName
+                                        enabled: !appController.busy
+                                        onEditingFinished: appController.cardName = text
+                                    }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    FieldLabel { text: "Camera ID" }
+                                    DenseTextField {
+                                        Layout.fillWidth: true
+                                        text: appController.cameraId
+                                        enabled: !appController.busy
+                                        onEditingFinished: appController.cameraId = text
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -396,7 +512,7 @@ ApplicationWindow {
                     MetricBox { label: "Only A"; value: appController.onlyACount.toString(); tone: appController.onlyACount > 0 ? "warn" : "neutral" }
                     MetricBox { label: "Only B"; value: appController.onlyBCount.toString(); tone: appController.onlyBCount > 0 ? "warn" : "neutral" }
                     MetricBox { label: "Files"; value: appController.totalFiles.toString(); tone: "neutral" }
-                    MetricBox { label: "Size"; value: appController.formatBytes(appController.totalSize); tone: "neutral" }
+                    MetricBox { label: "Size"; value: appController.formatBytes(appController.totalSize); tone: "neutral"; selectable: false }
                 }
             }
 
@@ -410,12 +526,16 @@ ApplicationWindow {
                     anchors.leftMargin: 16
                     anchors.rightMargin: 16
                     spacing: 8
-                    FilterButton { text: "All"; filterValue: 0 }
-                    FilterButton { text: "Matching"; filterValue: 1 }
-                    FilterButton { text: "Changed"; filterValue: 2 }
-                    FilterButton { text: "Only A"; filterValue: 3 }
-                    FilterButton { text: "Only B"; filterValue: 4 }
-                    FilterButton { text: "Folders"; filterValue: 5 }
+                    QuietButton {
+                        text: "All"
+                        danger: filterModel.filter === 0
+                        onClicked: appController.setFilter(0)
+                    }
+                    QuietButton {
+                        text: "Folders"
+                        danger: filterModel.filter === 5
+                        onClicked: appController.setFilter(5)
+                    }
                     Item { Layout.fillWidth: true }
                     QuietButton { text: "TXT"; enabled: appController.canExport && !appController.busy; onClicked: appController.exportTxt() }
                     QuietButton { text: "CSV"; enabled: appController.canExport && !appController.busy; onClicked: appController.exportCsv() }
@@ -493,28 +613,50 @@ ApplicationWindow {
                         Rectangle {
                             visible: filterModel.visibleRowCount === 0 && !appController.busy
                             anchors.centerIn: parent
-                            width: 420
-                            height: 110
+                            width: 480
+                            height: 220
                             color: "transparent"
                             Column {
                                 anchors.centerIn: parent
-                                spacing: 8
+                                spacing: 16
                                 Text {
                                     text: appController.canExport ? "No Rows Match Filter" : "Ready For Verification"
                                     color: ink
                                     font.family: root.sans
-                                    font.pixelSize: 20
+                                    font.pixelSize: 24
                                     font.bold: true
                                     horizontalAlignment: Text.AlignHCenter
-                                    width: 420
+                                    width: 480
+                                }
+                                Column {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    spacing: 8
+                                    visible: !appController.canExport
+                                    Repeater {
+                                        model: [
+                                            "1. Choose a Source folder",
+                                            "2. Choose a Destination folder",
+                                            "3. Select your Compare mode",
+                                            "4. Click Start Verification"
+                                        ]
+                                        Text {
+                                            text: modelData
+                                            color: muted
+                                            font.family: root.sans
+                                            font.pixelSize: 14
+                                            horizontalAlignment: Text.AlignHCenter
+                                            width: 480
+                                        }
+                                    }
                                 }
                                 Text {
-                                    text: appController.canExport ? "Change the filter to inspect the current report." : "Choose source and destination folders, then start verification."
+                                    visible: appController.canExport
+                                    text: "Change the filter to inspect the current report."
                                     color: muted
                                     font.family: root.sans
-                                    font.pixelSize: 13
+                                    font.pixelSize: 14
                                     horizontalAlignment: Text.AlignHCenter
-                                    width: 420
+                                    width: 480
                                     wrapMode: Text.WordWrap
                                 }
                             }
@@ -549,14 +691,6 @@ ApplicationWindow {
                             to: 1
                             value: appController.progress
                             visible: appController.busy || appController.progress > 0
-                        }
-                        ComboBox {
-                            Layout.preferredWidth: 112
-                            model: ["system", "light", "dark"]
-                            currentIndex: themeController.preference === "dark" ? 2 : (themeController.preference === "light" ? 1 : 0)
-                            onActivated: themeController.preference = model[index]
-                            font.family: root.sans
-                            font.pixelSize: 11
                         }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: line }
