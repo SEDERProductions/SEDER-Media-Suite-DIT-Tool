@@ -1,0 +1,35 @@
+[package]
+name = "seder-dit-tool"
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Local-first Qt/Rust DIT offload tool for SEDER Media Suite."
+readme = "README.md"
+repository = "https://github.com/sederproductions/seder-dit-tool"
+keywords = ["dit", "media", "offload", "checksum", "qt", "rust"]
+categories = ["multimedia", "filesystem"]
+publish = false
+
+[workspace]
+resolver = "2"
+
+[lib]
+name = "seder_dit_tool"
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+anyhow = "1.0"
+blake3 = "1.5"
+twox-hash = { version = "2.1", default-features = false, features = ["xxhash64"] }
+walkdir = "2.5"
+crossbeam-channel = "0.5"
+
+[dev-dependencies]
+tempfile = "3.13"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

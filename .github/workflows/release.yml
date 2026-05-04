@@ -1,0 +1,232 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build, for example v0.1.0"
+        required: true
+        default: "v0.1.0"
+
+permissions:
+  contents: write
+
+env:
+  QT_VERSION: "6.7.3"
+
+jobs:
+  tag:
+    name: Auto-tag
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' && 
+      github.ref == 'refs/heads/main' && 
+      !contains(github.event.head_commit.message, 'chore: bump version to')
+    outputs:
+      release_tag: ${{ steps.bump.outputs.new_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get latest tag and bump patch
+        id: bump
+        run: |
+          LATEST=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          MAJOR=$(echo "$LATEST" | cut -d. -f1 | sed 's/v//')
+          MINOR=$(echo "$LATEST" | cut -d. -f2)
+          PATCH=$(echo "$LATEST" | cut -d. -f3)
+          NEW_PATCH=$((PATCH + 1))
+          NEW_TAG="v${MAJOR}.${MINOR}.${NEW_PATCH}"
+          echo "new_tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+          echo "Latest: $LATEST → New: $NEW_TAG"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Update Cargo.toml and push tag
+        env:
+          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+        run: |
+          NEW_VERSION="${NEW_TAG#v}"
+          sed -i "s/^version = \"[^\"]*\"/version = \"$NEW_VERSION\"/" Cargo.toml
+          cargo update -w
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore: bump version to ${NEW_TAG}"
+          git tag "$NEW_TAG"
+          git push origin HEAD:main
+          git push origin "$NEW_TAG"
+
+  build:
+    name: Build ${{ matrix.artifact_name }}
+    needs: tag
+    if: |
+      always() && (
+        needs.tag.result == 'success' ||
+        github.ref_type == 'tag' ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.tag.outputs.release_tag || github.ref_name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact_name: linux-x64
+            os: ubuntu-latest
+            package_command: bash scripts/package-linux.sh
+            shell: bash
+          - artifact_name: windows-x64
+            os: windows-latest
+            package_command: ./scripts/package-windows.ps1
+            shell: pwsh
+          - artifact_name: macos-arm64
+            os: macos-latest
+            package_command: bash scripts/package-macos.sh
+            shell: bash
+          - artifact_name: macos-x64
+            os: macos-15-intel
+            package_command: bash scripts/package-macos.sh
+            shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            curl \
+            libgl1-mesa-dev \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-xinerama0 \
+            ninja-build
+
+      - name: Install macOS build packages
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          cache: true
+
+      - name: Download linuxdeployqt for AppImage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          curl -L \
+            -o "$RUNNER_TEMP/linuxdeployqt.AppImage" \
+            "https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage"
+          chmod +x "$RUNNER_TEMP/linuxdeployqt.AppImage"
+          echo "LINUXDEPLOYQT=$RUNNER_TEMP/linuxdeployqt.AppImage" >> "$GITHUB_ENV"
+          echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
+
+      - name: Package
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          VERSION: ${{ env.RELEASE_TAG }}
+          CMAKE_GENERATOR: ${{ runner.os == 'Windows' && 'Visual Studio 17 2022' || 'Ninja' }}
+          CMAKE_GENERATOR_PLATFORM: ${{ runner.os == 'Windows' && 'x64' || '' }}
+        run: ${{ matrix.package_command }}
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ env.RELEASE_TAG }}
+          CMAKE_GENERATOR: Visual Studio 17 2022
+          CMAKE_GENERATOR_PLATFORM: x64
+        run: ${{ matrix.package_command }}
+
+      - name: Upload intermediate artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/artifacts/*
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Draft GitHub Release
+    needs: [build, tag]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.tag.outputs.release_tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download packaged assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate checksums and release notes
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
+          cd ..
+          cat > RELEASE_NOTES.md <<EOF
+          # SEDER DIT Tool ${RELEASE_TAG}
+
+          Cross-platform build generated by GitHub Actions from tag \`${RELEASE_TAG}\`.
+
+          ## Downloads
+
+          - macOS Apple Silicon: \`seder-dit-tool-${RELEASE_TAG}-macos-arm64.zip\`
+          - macOS Intel: \`seder-dit-tool-${RELEASE_TAG}-macos-x64.zip\`
+          - Windows x64: \`seder-dit-tool-${RELEASE_TAG}-windows-x64.zip\`
+          - Linux x64: \`seder-dit-tool-${RELEASE_TAG}-linux-x64.tar.gz\`
+
+          Verify downloads with \`SHA256SUMS.txt\` before launching.
+
+          ## Signing
+
+          Builds are ad-hoc signed by SEDER Productions for tamper-detection. macOS users may need to right-click → Open the first time; Windows users may see SmartScreen — click "More info → Run anyway". Apple notarization and a paid Windows Authenticode certificate are not configured.
+
+          ## Local Processing
+
+          Folder comparison, checksums, and report export run locally on your machine.
+          EOF
+
+      - name: Create or update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "SEDER DIT Tool ${RELEASE_TAG}" \
+              --notes-file RELEASE_NOTES.md
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --target "$GITHUB_SHA" \
+              --title "SEDER DIT Tool ${RELEASE_TAG}" \
+              --notes-file RELEASE_NOTES.md
+          fi
