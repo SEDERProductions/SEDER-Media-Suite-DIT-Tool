@@ -2,6 +2,7 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags:
       - "v*"
   workflow_dispatch:
@@ -16,15 +17,61 @@ permissions:
 
 env:
   QT_VERSION: "6.7.3"
-  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 jobs:
+  tag:
+    name: Auto-tag
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' && 
+      github.ref == 'refs/heads/main' && 
+      !contains(github.event.head_commit.message, 'chore: bump version to')
+    outputs:
+      release_tag: ${{ steps.bump.outputs.new_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get latest tag and bump patch
+        id: bump
+        run: |
+          LATEST=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          MAJOR=$(echo "$LATEST" | cut -d. -f1 | sed 's/v//')
+          MINOR=$(echo "$LATEST" | cut -d. -f2)
+          PATCH=$(echo "$LATEST" | cut -d. -f3)
+          NEW_PATCH=$((PATCH + 1))
+          NEW_TAG="v${MAJOR}.${MINOR}.${NEW_PATCH}"
+          echo "new_tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+          echo "Latest: $LATEST → New: $NEW_TAG"
+
+      - name: Update Cargo.toml and push tag
+        env:
+          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+        run: |
+          NEW_VERSION="${NEW_TAG#v}"
+          sed -i "s/^version = \"[^\"]*\"/version = \"$NEW_VERSION\"/" Cargo.toml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml
+          git commit -m "chore: bump version to ${NEW_TAG}"
+          git tag "$NEW_TAG"
+          git push origin HEAD:main
+          git push origin "$NEW_TAG"
+
   build:
     name: Build ${{ matrix.artifact_name }}
-    # Use only standard GitHub-hosted runners. They are free for public
-    # repositories; avoid paid larger runners, GPU runners, and self-hosted
-    # infrastructure for this open-source release pipeline.
+    needs: tag
+    if: |
+      always() && (
+        needs.tag.result == 'success' ||
+        github.ref_type == 'tag' ||
+        github.event_name == 'workflow_dispatch'
+      )
     runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.tag.outputs.release_tag || github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -118,8 +165,11 @@ jobs:
 
   publish:
     name: Draft GitHub Release
-    needs: build
+    needs: [build, tag]
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.tag.outputs.release_tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
