@@ -16,8 +16,7 @@ Local-first DIT folder verification for source and destination offloads. The app
 | macOS Apple Silicon | `seder-dit-tool-macos-arm64.zip` |
 | macOS Intel | `seder-dit-tool-macos-x64.zip` |
 | Windows x64 | `seder-dit-tool-windows-x64.zip` |
-| Linux x64 | `seder-dit-tool-linux-x64.AppImage` |
-| Linux fallback | `seder-dit-tool-linux-x64.tar.gz` |
+| Linux x64 | `seder-dit-tool-linux-x64.tar.gz` |
 
 Download `SHA256SUMS.txt` from the same release and verify the file before launching.
 
@@ -73,14 +72,9 @@ More Qt-specific build notes are in [qt/README.md](qt/README.md).
 
 ## Release Process
 
-Public releases are built by GitHub Actions on standard GitHub-hosted runners. Push a version tag to create a draft release with platform assets:
+Public releases are built automatically by GitHub Actions on every push to `main`. The workflow bumps the patch version, updates `Cargo.toml`, builds all platform assets, and publishes a new release. No manual tagging is required.
 
-```sh
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-The release workflow uploads ZIP/AppImage/tarball assets and `SHA256SUMS.txt` to GitHub Releases.
+The release workflow uploads ZIP/tarball assets and `SHA256SUMS.txt` to GitHub Releases.
 
 ## License
 
