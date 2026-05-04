@@ -197,8 +197,7 @@ jobs:
           - macOS Apple Silicon: \`seder-dit-tool-${RELEASE_TAG}-macos-arm64.zip\`
           - macOS Intel: \`seder-dit-tool-${RELEASE_TAG}-macos-x64.zip\`
           - Windows x64: \`seder-dit-tool-${RELEASE_TAG}-windows-x64.zip\`
-          - Linux x64: \`seder-dit-tool-${RELEASE_TAG}-linux-x64.AppImage\`
-          - Linux fallback: \`seder-dit-tool-${RELEASE_TAG}-linux-x64.tar.gz\`
+          - Linux x64: \`seder-dit-tool-${RELEASE_TAG}-linux-x64.tar.gz\`
 
           Verify downloads with \`SHA256SUMS.txt\` before launching.
 
