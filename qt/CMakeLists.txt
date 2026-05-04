@@ -27,7 +27,6 @@ set(RUST_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/mod.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/engine.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/progress.rs"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/destination.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/verify.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/volume.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/report.rs"
