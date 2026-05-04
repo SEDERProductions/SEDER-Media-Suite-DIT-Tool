@@ -257,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "seder-dit-tool"
-version = "0.1.9"
+version = "0.1.11"
 dependencies = [
  "anyhow",
  "blake3",
