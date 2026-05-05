@@ -6,7 +6,6 @@ This is the Qt 6/QML rebuild of the SEDER Media Suite DIT app. The UI is C++/Qt/
 
 ```sh
 brew install qt cmake ninja
-cd desktop/seder-dit-tool
 cmake -S qt -B qt/build -G Ninja -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
 cmake --build qt/build
 ./qt/build/seder-media-suite-dit-qt.app/Contents/MacOS/seder-media-suite-dit-qt
@@ -15,7 +14,6 @@ cmake --build qt/build
 ## Qt Online Installer Setup
 
 ```sh
-cd desktop/seder-dit-tool
 cmake -S qt -B qt/build -G Ninja -DCMAKE_PREFIX_PATH="/path/to/Qt/6.x/macos"
 cmake --build qt/build
 ```
@@ -25,7 +23,6 @@ cmake --build qt/build
 Rust core and FFI:
 
 ```sh
-cd desktop/seder-dit-tool
 cargo fmt -- --check
 cargo check --manifest-path Cargo.toml
 cargo test --manifest-path Cargo.toml
@@ -34,7 +31,6 @@ cargo test --manifest-path Cargo.toml
 Qt model/proxy tests, after Qt and CMake are installed:
 
 ```sh
-cd desktop/seder-dit-tool
 cmake -S qt -B qt/build -G Ninja -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DBUILD_TESTING=ON
 cmake --build qt/build
 ctest --test-dir qt/build --output-on-failure
