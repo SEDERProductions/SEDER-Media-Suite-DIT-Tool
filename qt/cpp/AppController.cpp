@@ -170,7 +170,7 @@ void AppController::startOffload()
             }
         }
     });
-    connect(worker, &DitOffloadWorker::finished, this, [this](const FinalReportData &report) {
+    connect(worker, &DitOffloadWorker::finished, this, [this, request](const FinalReportData &report) {
         setBusy(false);
         setOverallProgress(1.0);
         setPass(report.allPass);

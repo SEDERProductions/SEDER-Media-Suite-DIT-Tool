@@ -1,3 +1,5 @@
+#![allow(clippy::missing_safety_doc)]
+
 use crate::offload::engine::{offload_files, scan_source};
 use crate::offload::volume::are_same_volume;
 use crate::offload::*;

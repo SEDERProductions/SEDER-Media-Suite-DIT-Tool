@@ -99,10 +99,10 @@ pub fn offload_files(
 
     let overall_files_total = scan.files.len() as u64;
     let overall_bytes_total = scan.total_size;
-    let mut overall_files_completed = 0u64;
     let mut overall_bytes_completed = 0u64;
 
-    for file_entry in &scan.files {
+    for (idx, file_entry) in scan.files.iter().enumerate() {
+        let overall_files_completed = (idx + 1) as u64;
         if cancel_flag.load(Ordering::Relaxed) {
             for r in &mut results {
                 if r.state != DestinationState::Complete {
@@ -177,7 +177,6 @@ pub fn offload_files(
             }
         }
 
-        overall_files_completed += 1;
         overall_bytes_completed += file_entry.size;
 
         let dest_progress: Vec<DestinationProgress> = results
