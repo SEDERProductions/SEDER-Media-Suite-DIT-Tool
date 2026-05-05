@@ -9,6 +9,7 @@ use std::sync::Arc;
 const CHUNK_SIZE: usize = 1024 * 1024; // 1 MiB
 const CHANNEL_BOUND: usize = 16;
 
+#[derive(Clone)]
 enum ChunkMessage {
     Data(Vec<u8>),
     End,

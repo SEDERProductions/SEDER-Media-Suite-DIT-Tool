@@ -82,10 +82,10 @@ pub extern "C" fn seder_offload_start(
     user_data: *mut c_void,
     error_out: *mut *mut c_char,
 ) -> *mut OffloadReportHandle {
-    let result = catch_unwind(|| {
+    let result = catch_unwind(|| -> anyhow::Result<*mut OffloadReportHandle> {
         let req = unsafe {
             if request.is_null() {
-                return std::ptr::null_mut();
+                return Err(anyhow!("Null offload request"));
             }
             &*request
         };
@@ -129,22 +129,11 @@ pub extern "C" fn seder_offload_start(
         let cancel_flag = Arc::new(AtomicBool::new(false));
         let cancel_ptr = req.cancel_token;
 
-        // Scan source
-        let scan = scan_source(
-            &offload_request.source,
-            &offload_request.options,
-            &mut |_files, _bytes| {},
-        )?;
-
-        if scan.files.is_empty() {
-            return Err(anyhow!("Source is empty: no files found to offload"));
-        }
-
         // Progress callback bridge
         let mut progress_strings: Vec<(CString, Option<CString>)> = Vec::new();
         let mut dest_progress_vec: Vec<SederDestinationProgress> = Vec::new();
 
-        let progress_callback = |progress: OffloadProgress| {
+        let mut progress_callback = |progress: OffloadProgress| {
             // Update cancel flag from Qt side
             if !cancel_ptr.is_null() {
                 if unsafe { *cancel_ptr } != 0 {
@@ -190,6 +179,63 @@ pub extern "C" fn seder_offload_start(
 
             callback(&c_progress, user_data);
         };
+
+        let destination_count = offload_request.destinations.len();
+        let scan_destinations = || -> Vec<DestinationProgress> {
+            (0..destination_count)
+                .map(|index| DestinationProgress {
+                    index,
+                    state: DestinationState::Scanning,
+                    files_completed: 0,
+                    files_total: 0,
+                    bytes_completed: 0,
+                    bytes_total: 0,
+                    current_file: String::new(),
+                    error: None,
+                })
+                .collect()
+        };
+
+        progress_callback(OffloadProgress {
+            phase: "scanning_source_start".into(),
+            overall_files_completed: 0,
+            overall_files_total: 0,
+            overall_bytes_completed: 0,
+            overall_bytes_total: 0,
+            current_file: String::new(),
+            destinations: scan_destinations(),
+        });
+
+        // Scan source
+        let scan = scan_source(
+            &offload_request.source,
+            &offload_request.options,
+            &mut |files, bytes| {
+                progress_callback(OffloadProgress {
+                    phase: "scanning_source".into(),
+                    overall_files_completed: files,
+                    overall_files_total: 0,
+                    overall_bytes_completed: bytes,
+                    overall_bytes_total: 0,
+                    current_file: String::new(),
+                    destinations: scan_destinations(),
+                });
+            },
+        )?;
+
+        progress_callback(OffloadProgress {
+            phase: "scanning_source_complete".into(),
+            overall_files_completed: scan.total_files,
+            overall_files_total: scan.total_files,
+            overall_bytes_completed: scan.total_size,
+            overall_bytes_total: scan.total_size,
+            current_file: String::new(),
+            destinations: scan_destinations(),
+        });
+
+        if scan.files.is_empty() {
+            return Err(anyhow!("Source is empty: no files found to offload"));
+        }
 
         // Offload
         let destination_results = offload_files(

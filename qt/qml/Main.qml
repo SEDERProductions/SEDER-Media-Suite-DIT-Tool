@@ -743,6 +743,7 @@ ApplicationWindow {
                             from: 0
                             to: 1
                             value: appController.overallProgress
+                            indeterminate: appController.busy && appController.statusText === "Scanning source..." && appController.overallProgress <= 0
                             visible: appController.busy || appController.overallProgress > 0
                         }
                         StyledComboBox {
@@ -767,13 +768,15 @@ ApplicationWindow {
                         }
                     }
                     Text {
-                        text: appController.currentFile
+                        text: appController.statusText === "Scanning source..."
+                              ? "Indexing source files and checksums..."
+                              : appController.currentFile
                         color: faint
                         font.family: root.mono
                         font.pixelSize: 10
                         elide: Text.ElideMiddle
                         Layout.fillWidth: true
-                        visible: appController.busy && appController.currentFile.length > 0
+                        visible: appController.busy && (appController.currentFile.length > 0 || appController.statusText === "Scanning source...")
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: line }
                     ListView {
