@@ -19,7 +19,6 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS ${SEDER_QT_COMPONENTS})
 qt_standard_project_setup(REQUIRES 6.5)
 
 set(RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/rust-target")
-set(RUST_STATICLIB "${RUST_TARGET_DIR}/release/${CMAKE_STATIC_LIBRARY_PREFIX}seder_dit_tool${CMAKE_STATIC_LIBRARY_SUFFIX}")
 set(RUST_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/../Cargo.toml")
 set(RUST_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/lib.rs"
@@ -32,18 +31,62 @@ set(RUST_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/report.rs"
 )
 
-add_custom_command(
-    OUTPUT "${RUST_STATICLIB}"
-    COMMAND cargo build --manifest-path "${RUST_MANIFEST}" --release --target-dir "${RUST_TARGET_DIR}"
-    DEPENDS "${RUST_MANIFEST}" ${RUST_SOURCES}
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
-    COMMENT "Building SEDER DIT Rust core"
-    VERBATIM
-)
+function(seder_config_to_cargo_profile config out_profile out_release_flag)
+    if(config STREQUAL "Debug")
+        set(profile "debug")
+        set(release_flag "")
+    else()
+        set(profile "release")
+        set(release_flag "--release")
+    endif()
 
-add_custom_target(seder_dit_rust_build DEPENDS "${RUST_STATICLIB}")
+    set(${out_profile} "${profile}" PARENT_SCOPE)
+    set(${out_release_flag} "${release_flag}" PARENT_SCOPE)
+endfunction()
+
+set(_seder_known_configs Debug Release RelWithDebInfo MinSizeRel)
+set(_seder_rust_outputs)
+
+foreach(_cfg IN LISTS _seder_known_configs)
+    seder_config_to_cargo_profile("${_cfg}" _cargo_profile _cargo_release_flag)
+    set(_rust_staticlib_${_cfg} "${RUST_TARGET_DIR}/${_cargo_profile}/${CMAKE_STATIC_LIBRARY_PREFIX}seder_dit_tool${CMAKE_STATIC_LIBRARY_SUFFIX}")
+
+    add_custom_command(
+        OUTPUT "${_rust_staticlib_${_cfg}}"
+        COMMAND ${CMAKE_COMMAND} -E echo "Building SEDER DIT Rust core for CMake config ${_cfg} using Cargo profile ${_cargo_profile}"
+        COMMAND cargo build --manifest-path "${RUST_MANIFEST}" ${_cargo_release_flag} --target-dir "${RUST_TARGET_DIR}"
+        DEPENDS "${RUST_MANIFEST}" ${RUST_SOURCES}
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+        COMMENT "Building SEDER DIT Rust core (${_cfg})"
+        VERBATIM
+    )
+
+    list(APPEND _seder_rust_outputs "${_rust_staticlib_${_cfg}}")
+endforeach()
+
+if(CMAKE_CONFIGURATION_TYPES)
+    set(_seder_active_configs ${CMAKE_CONFIGURATION_TYPES})
+else()
+    if(CMAKE_BUILD_TYPE)
+        set(_seder_active_configs ${CMAKE_BUILD_TYPE})
+    else()
+        set(_seder_active_configs Debug)
+    endif()
+endif()
+
+foreach(_cfg IN LISTS _seder_active_configs)
+    seder_config_to_cargo_profile("${_cfg}" _cargo_profile _cargo_release_flag)
+    message(STATUS "CMake config '${_cfg}' maps to Cargo profile '${_cargo_profile}'")
+endforeach()
+
+add_custom_target(seder_dit_rust_build DEPENDS ${_seder_rust_outputs})
 add_library(seder_dit_rust STATIC IMPORTED GLOBAL)
-set_target_properties(seder_dit_rust PROPERTIES IMPORTED_LOCATION "${RUST_STATICLIB}")
+set_target_properties(seder_dit_rust PROPERTIES
+    IMPORTED_LOCATION_DEBUG "${_rust_staticlib_Debug}"
+    IMPORTED_LOCATION_RELEASE "${_rust_staticlib_Release}"
+    IMPORTED_LOCATION_RELWITHDEBINFO "${_rust_staticlib_RelWithDebInfo}"
+    IMPORTED_LOCATION_MINSIZEREL "${_rust_staticlib_MinSizeRel}"
+)
 add_dependencies(seder_dit_rust seder_dit_rust_build)
 
 set(SEDER_APP_ICON_MACOS "${CMAKE_CURRENT_SOURCE_DIR}/../assets/icon.icns")

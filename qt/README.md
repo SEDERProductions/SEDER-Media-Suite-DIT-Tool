@@ -18,6 +18,34 @@ cmake -S qt -B qt/build -G Ninja -DCMAKE_PREFIX_PATH="/path/to/Qt/6.x/macos"
 cmake --build qt/build
 ```
 
+## Debug Build (Rust + Qt)
+
+Use a Debug CMake configuration to build the Rust core in Cargo's `debug` profile (no `--release`):
+
+```sh
+cd desktop/seder-dit-tool
+cmake -S qt -B qt/build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+cmake --build qt/build-debug
+```
+
+For multi-config generators (Xcode, Visual Studio, Ninja Multi-Config), choose the configuration at build time:
+
+```sh
+cd desktop/seder-dit-tool
+cmake -S qt -B qt/build-multi -G "Ninja Multi-Config" -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+cmake --build qt/build-multi --config Debug
+cmake --build qt/build-multi --config Release
+```
+
+### Verify selected Cargo profile
+
+During CMake configure, look for status lines such as:
+
+- `CMake config 'Debug' maps to Cargo profile 'debug'`
+- `CMake config 'Release' maps to Cargo profile 'release'`
+
+During build, the Rust build step prints the selected profile per configuration.
+
 ## Tests
 
 Rust core and FFI:
