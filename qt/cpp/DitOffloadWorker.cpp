@@ -121,7 +121,7 @@ void DitOffloadWorker::run()
     for (size_t i = 0; i < destCount; ++i) {
         uint32_t state = 0;
         seder_report_dest_state(handle, i, &state, nullptr, nullptr, nullptr, nullptr);
-        if (state != 4) {
+        if (state != 4 && state != 6) {
             report.allPass = false;
             break;
         }

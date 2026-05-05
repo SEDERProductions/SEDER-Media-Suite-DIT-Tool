@@ -52,6 +52,7 @@ pub enum DestinationState {
     Verifying = 3,
     Complete = 4,
     Failed = 5,
+    Cancelled = 6,
 }
 
 #[derive(Debug, Clone)]

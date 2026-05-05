@@ -387,9 +387,10 @@ ApplicationWindow {
                                                 case 3: return "Verifying"
                                                 case 4: return "Complete"
                                                 case 5: return "Failed"
+                                                case 6: return "Cancelled"
                                                 }
                                             }
-                                            color: model.state === 4 ? green : (model.state === 5 ? bad : warn)
+                                            color: model.state === 4 ? green : (model.state === 5 ? bad : (model.state === 6 ? faint : warn))
                                             font.family: root.mono
                                             font.pixelSize: 10
                                             horizontalAlignment: Text.AlignRight
