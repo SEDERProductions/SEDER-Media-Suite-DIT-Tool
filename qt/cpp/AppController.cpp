@@ -3,6 +3,7 @@
 #include <QFileDialog>
 #include <QSaveFile>
 #include <QThread>
+#include <QRegularExpression>
 #include <functional>
 
 namespace {
@@ -28,13 +29,13 @@ QString AppController::sourcePath() const { return m_sourcePath; }
 void AppController::setSourcePath(const QString &value) { setIfChanged(m_sourcePath, value, [this] { emit sourcePathChanged(); }); }
 DestinationListModel *AppController::destinationModel() const { return m_destinationModel; }
 QString AppController::projectName() const { return m_projectName; }
-void AppController::setProjectName(const QString &value) { setIfChanged(m_projectName, value, [this] { emit projectNameChanged(); }); }
+void AppController::setProjectName(const QString &value) { setIfChanged(m_projectName, value.trimmed(), [this] { emit projectNameChanged(); }); }
 QString AppController::shootDate() const { return m_shootDate; }
-void AppController::setShootDate(const QString &value) { setIfChanged(m_shootDate, value, [this] { emit shootDateChanged(); }); }
+void AppController::setShootDate(const QString &value) { setIfChanged(m_shootDate, value.trimmed(), [this] { emit shootDateChanged(); }); }
 QString AppController::cardName() const { return m_cardName; }
-void AppController::setCardName(const QString &value) { setIfChanged(m_cardName, value, [this] { emit cardNameChanged(); }); }
+void AppController::setCardName(const QString &value) { setIfChanged(m_cardName, value.trimmed(), [this] { emit cardNameChanged(); }); }
 QString AppController::cameraId() const { return m_cameraId; }
-void AppController::setCameraId(const QString &value) { setIfChanged(m_cameraId, value, [this] { emit cameraIdChanged(); }); }
+void AppController::setCameraId(const QString &value) { setIfChanged(m_cameraId, value.trimmed(), [this] { emit cameraIdChanged(); }); }
 QString AppController::ignorePatterns() const { return m_ignorePatterns; }
 void AppController::setIgnorePatterns(const QString &value) { setIfChanged(m_ignorePatterns, value, [this] { emit ignorePatternsChanged(); }); }
 bool AppController::ignoreHiddenSystem() const { return m_ignoreHiddenSystem; }
@@ -96,6 +97,10 @@ void AppController::startOffload()
     }
     request.projectName = m_projectName;
     request.shootDate = m_shootDate;
+    static const QRegularExpression shootDatePattern(QStringLiteral(R"(^\d{4}-\d{2}-\d{2}$)"));
+    if (!request.shootDate.isEmpty() && !shootDatePattern.match(request.shootDate).hasMatch()) {
+        appendLog(QStringLiteral("Warning: shoot date '%1' should use YYYY-MM-DD format.").arg(request.shootDate));
+    }
     request.cardName = m_cardName;
     request.cameraId = m_cameraId;
     request.ignorePatterns = m_ignorePatterns;

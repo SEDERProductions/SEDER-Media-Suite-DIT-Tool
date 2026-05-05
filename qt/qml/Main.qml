@@ -390,7 +390,7 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 text: appController.projectName
                                 enabled: !appController.busy
-                                onEditingFinished: appController.projectName = text
+                                onTextChanged: appController.projectName = text
                             }
                             FieldLabel { text: "Shoot date" }
                             DenseTextField {
@@ -398,7 +398,7 @@ ApplicationWindow {
                                 text: appController.shootDate
                                 placeholderText: "YYYY-MM-DD"
                                 enabled: !appController.busy
-                                onEditingFinished: appController.shootDate = text
+                                onTextChanged: appController.shootDate = text
                             }
                             RowLayout {
                                 Layout.fillWidth: true
@@ -410,7 +410,7 @@ ApplicationWindow {
                                         Layout.fillWidth: true
                                         text: appController.cardName
                                         enabled: !appController.busy
-                                        onEditingFinished: appController.cardName = text
+                                        onTextChanged: appController.cardName = text
                                     }
                                 }
                                 ColumnLayout {
@@ -420,7 +420,7 @@ ApplicationWindow {
                                         Layout.fillWidth: true
                                         text: appController.cameraId
                                         enabled: !appController.busy
-                                        onEditingFinished: appController.cameraId = text
+                                        onTextChanged: appController.cameraId = text
                                     }
                                 }
                             }
