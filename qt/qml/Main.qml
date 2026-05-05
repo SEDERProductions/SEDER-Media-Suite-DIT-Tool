@@ -27,6 +27,7 @@ ApplicationWindow {
     readonly property string sans: "Manrope, Helvetica Neue, Helvetica, Arial, sans-serif"
 
     property bool metadataExpanded: false
+    property bool logAutoScrollEnabled: true
 
     color: bg
 
@@ -35,6 +36,20 @@ ApplicationWindow {
         if (tone === "warn") return warn
         if (tone === "bad") return bad
         return faint
+    }
+
+    function logSeverity(entry) {
+        const m = entry.match(/\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]\s+\[(INFO|WARN|ERROR)\]/)
+        return m ? m[1] : "INFO"
+    }
+
+    function logMessage(entry) {
+        return entry.replace(/^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]\s+\[(INFO|WARN|ERROR)\]\s*/, "")
+    }
+
+    function logTimestamp(entry) {
+        const m = entry.match(/^\[([0-9]{2}:[0-9]{2}:[0-9]{2})\]/)
+        return m ? m[1] : ""
     }
 
     component MetaLabel: Text {
@@ -613,6 +628,16 @@ ApplicationWindow {
                             }
                             font.pixelSize: 10
                         }
+                        QuietButton {
+                            text: "Copy Log"
+                            enabled: appController.logLines.length > 0
+                            onClicked: appController.copyLog()
+                        }
+                        QuietButton {
+                            text: "Clear Log"
+                            enabled: appController.logLines.length > 0
+                            onClicked: appController.clearLog()
+                        }
                     }
                     Text {
                         text: appController.currentFile
@@ -625,18 +650,52 @@ ApplicationWindow {
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: line }
                     ListView {
+                        id: logListView
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
                         model: appController.logLines
-                        delegate: Text {
-                            width: ListView.view.width
-                            text: modelData
-                            color: muted
-                            font.family: root.mono
-                            font.pixelSize: 10
-                            elide: Text.ElideRight
+                        spacing: 2
+                        onCountChanged: {
+                            if (root.logAutoScrollEnabled && count > 0) {
+                                positionViewAtEnd()
+                            }
                         }
+                        onContentYChanged: {
+                            const atBottom = (contentY + height) >= (contentHeight - 8)
+                            if (!appController.busy) {
+                                root.logAutoScrollEnabled = true
+                            } else {
+                                root.logAutoScrollEnabled = atBottom
+                            }
+                        }
+                        delegate: RowLayout {
+                            width: ListView.view.width
+                            spacing: 8
+                            property string severity: root.logSeverity(modelData)
+                            property color sevColor: severity === "ERROR" ? bad : (severity === "WARN" ? warn : muted)
+                            Text {
+                                text: severity === "ERROR" ? "⛔" : (severity === "WARN" ? "⚠" : "•")
+                                color: parent.sevColor
+                                font.family: root.sans
+                                font.pixelSize: 10
+                            }
+                            Text {
+                                text: root.logTimestamp(modelData)
+                                color: faint
+                                font.family: root.mono
+                                font.pixelSize: 10
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: root.logMessage(modelData)
+                                color: parent.sevColor
+                                font.family: root.mono
+                                font.pixelSize: 10
+                                elide: Text.ElideRight
+                            }
+                        }
+                        ScrollBar.vertical: ScrollBar {}
                     }
                 }
             }

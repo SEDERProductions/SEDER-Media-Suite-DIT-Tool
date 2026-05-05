@@ -66,6 +66,8 @@ public:
     Q_INVOKABLE void exportTxt();
     Q_INVOKABLE void exportCsv();
     Q_INVOKABLE void exportMhl();
+    Q_INVOKABLE void clearLog();
+    Q_INVOKABLE void copyLog();
     Q_INVOKABLE QString formatBytes(quint64 value) const;
 
 signals:
@@ -86,7 +88,12 @@ signals:
     void summaryChanged();
 
 private:
-    void appendLog(const QString &line);
+    enum class LogSeverity {
+        Info,
+        Warn,
+        Error
+    };
+    void appendLog(const QString &line, LogSeverity severity = LogSeverity::Info);
     void setBusy(bool value);
     void setOverallProgress(double value);
     void setStatusText(const QString &value);

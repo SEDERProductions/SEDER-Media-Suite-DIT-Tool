@@ -1,6 +1,9 @@
 #include "AppController.h"
 
 #include <QFileDialog>
+#include <QGuiApplication>
+#include <QClipboard>
+#include <QDateTime>
 #include <QSaveFile>
 #include <QThread>
 #include <functional>
@@ -77,12 +80,12 @@ void AppController::startOffload()
     if (m_busy) return;
     if (m_sourcePath.isEmpty()) {
         setStatusText(QStringLiteral("Missing source folder."));
-        appendLog(QStringLiteral("Source folder is required."));
+        appendLog(QStringLiteral("Source folder is required."), LogSeverity::Warn);
         return;
     }
     if (m_destinationModel->count() == 0) {
         setStatusText(QStringLiteral("No destinations selected."));
-        appendLog(QStringLiteral("At least one destination is required."));
+        appendLog(QStringLiteral("At least one destination is required."), LogSeverity::Warn);
         return;
     }
 
@@ -162,14 +165,14 @@ void AppController::startOffload()
         setOverallProgress(0.0);
         setStatusText(message);
         setPass(false);
-        appendLog(QStringLiteral("Offload failed: %1").arg(message));
+        appendLog(QStringLiteral("Offload failed: %1").arg(message), LogSeverity::Error);
     });
     connect(worker, &DitOffloadWorker::cancelled, this, [this] {
         setBusy(false);
         setOverallProgress(0.0);
         setStatusText(QStringLiteral("Offload cancelled."));
         setPass(false);
-        appendLog(QStringLiteral("Offload cancelled by user."));
+        appendLog(QStringLiteral("Offload cancelled by user."), LogSeverity::Warn);
     });
     connect(worker, &DitOffloadWorker::finished, thread, [thread](const FinalReportData &) { thread->quit(); });
     connect(worker, &DitOffloadWorker::failed, thread, &QThread::quit);
@@ -184,7 +187,7 @@ void AppController::cancelOffload()
 {
     if (m_activeWorker) {
         m_activeWorker->cancel();
-        appendLog(QStringLiteral("Cancelling offload..."));
+        appendLog(QStringLiteral("Cancelling offload..."), LogSeverity::Warn);
     }
 }
 
@@ -213,9 +216,13 @@ QString AppController::formatBytes(quint64 value) const
     return QStringLiteral("%1 %2").arg(scaled, 0, 'f', 2).arg(units[exp]);
 }
 
-void AppController::appendLog(const QString &line)
+void AppController::appendLog(const QString &line, LogSeverity severity)
 {
-    m_logLines.append(line);
+    QString severityText = QStringLiteral("INFO");
+    if (severity == LogSeverity::Warn) severityText = QStringLiteral("WARN");
+    if (severity == LogSeverity::Error) severityText = QStringLiteral("ERROR");
+    const QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss"));
+    m_logLines.append(QStringLiteral("[%1] [%2] %3").arg(timestamp, severityText, line));
     while (m_logLines.size() > 300) {
         m_logLines.removeFirst();
     }
@@ -262,26 +269,44 @@ void AppController::writeExport(const QString &caption, const QString &defaultNa
 {
     if (contents.isEmpty()) {
         setStatusText(QStringLiteral("No report is ready to export."));
-        appendLog(QStringLiteral("Export skipped because no report is ready."));
+        appendLog(QStringLiteral("Export skipped because no report is ready."), LogSeverity::Warn);
         return;
     }
     const QString path = QFileDialog::getSaveFileName(nullptr, caption, defaultName);
     if (path.isEmpty()) {
-        appendLog(QStringLiteral("Export canceled."));
+        appendLog(QStringLiteral("Export canceled."), LogSeverity::Warn);
         return;
     }
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         setStatusText(QStringLiteral("Unable to write %1").arg(path));
-        appendLog(QStringLiteral("Unable to write %1").arg(path));
+        appendLog(QStringLiteral("Unable to write %1").arg(path), LogSeverity::Error);
         return;
     }
     file.write(contents.toUtf8());
     if (!file.commit()) {
         setStatusText(QStringLiteral("Unable to save %1").arg(path));
-        appendLog(QStringLiteral("Unable to save %1").arg(path));
+        appendLog(QStringLiteral("Unable to save %1").arg(path), LogSeverity::Error);
         return;
     }
     setStatusText(QStringLiteral("Export complete."));
     appendLog(QStringLiteral("Exported %1").arg(path));
+}
+void AppController::clearLog()
+{
+    if (m_logLines.isEmpty()) return;
+    m_logLines.clear();
+    emit logLinesChanged();
+    appendLog(QStringLiteral("Log cleared."));
+}
+
+void AppController::copyLog()
+{
+    QClipboard *clipboard = QGuiApplication::clipboard();
+    if (!clipboard) {
+        appendLog(QStringLiteral("Clipboard is unavailable."), LogSeverity::Warn);
+        return;
+    }
+    clipboard->setText(m_logLines.join(u'\n'));
+    appendLog(QStringLiteral("Copied log to clipboard."));
 }
