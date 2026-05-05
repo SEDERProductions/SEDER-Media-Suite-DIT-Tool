@@ -81,6 +81,7 @@ uint8_t seder_report_dest_state(
     uint64_t *files_failed_out,
     uint64_t *bytes_copied_out
 );
+uint8_t seder_report_verification_performed(OffloadReportHandle *handle);
 
 #ifdef __cplusplus
 }

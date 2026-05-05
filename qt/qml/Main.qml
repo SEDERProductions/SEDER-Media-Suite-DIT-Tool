@@ -487,8 +487,14 @@ ApplicationWindow {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 58
-                        color: appController.pass ? (dark ? "#1a2a1f" : "#e0f0e6") : panelAlt
-                        border.color: appController.pass ? green : line
+                        color: appController.finalStatus === "PASS"
+                               ? (dark ? "#1a2a1f" : "#e0f0e6")
+                               : (appController.finalStatus === "COPIED (UNVERIFIED)"
+                                  ? (dark ? "#2c271b" : "#f4ecd8")
+                                  : panelAlt)
+                        border.color: appController.finalStatus === "PASS"
+                                      ? green
+                                      : (appController.finalStatus === "COPIED (UNVERIFIED)" ? warn : line)
                         radius: 4
                         visible: appController.canExport
                         Column {
@@ -497,8 +503,10 @@ ApplicationWindow {
                             spacing: 5
                             MetaLabel { text: "Status" }
                             Text {
-                                text: appController.pass ? "PASS" : "FAIL"
-                                color: appController.pass ? green : bad
+                                text: appController.finalStatus
+                                color: appController.finalStatus === "PASS"
+                                       ? green
+                                       : (appController.finalStatus === "COPIED (UNVERIFIED)" ? warn : bad)
                                 font.family: root.mono
                                 font.pixelSize: 18
                                 font.bold: true

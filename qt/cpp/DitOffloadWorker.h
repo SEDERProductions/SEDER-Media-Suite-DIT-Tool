@@ -48,6 +48,8 @@ struct FinalReportData {
     quint64 totalFiles = 0;
     quint64 totalSize = 0;
     bool allPass = false;
+    bool verificationPerformed = false;
+    QString finalStatus;
 };
 
 class DitOffloadWorker final : public QObject {

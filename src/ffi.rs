@@ -214,12 +214,15 @@ pub extern "C" fn seder_offload_start(
             }
         }
 
+        let verification_performed = offload_request.options.verify_after_copy
+            && destination_results.iter().any(|dest| dest.files_copied > 0);
         let report = OffloadReport {
             source_path,
             metadata: offload_request.metadata,
             source_scan: scan,
             destination_results,
             timestamp,
+            verification_performed,
             warnings,
         };
 
@@ -363,6 +366,15 @@ pub extern "C" fn seder_report_dest_state(
         }
     }
     1
+}
+
+#[no_mangle]
+pub extern "C" fn seder_report_verification_performed(handle: *mut OffloadReportHandle) -> u8 {
+    if handle.is_null() {
+        return 0;
+    }
+    let report = unsafe { &(*handle).report };
+    if report.verification_performed { 1 } else { 0 }
 }
 
 // ============================================================================

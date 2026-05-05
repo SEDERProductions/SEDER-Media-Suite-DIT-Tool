@@ -27,6 +27,8 @@ class AppController final : public QObject {
     Q_PROPERTY(quint64 totalFiles READ totalFiles NOTIFY summaryChanged)
     Q_PROPERTY(quint64 totalSize READ totalSize NOTIFY summaryChanged)
     Q_PROPERTY(bool pass READ pass NOTIFY summaryChanged)
+    Q_PROPERTY(QString finalStatus READ finalStatus NOTIFY summaryChanged)
+    Q_PROPERTY(bool verificationPerformed READ verificationPerformed NOTIFY summaryChanged)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -57,6 +59,8 @@ public:
     quint64 totalFiles() const;
     quint64 totalSize() const;
     bool pass() const;
+    QString finalStatus() const;
+    bool verificationPerformed() const;
 
     Q_INVOKABLE void chooseSourceFolder();
     Q_INVOKABLE void addDestinationFolder();
@@ -112,6 +116,8 @@ private:
     quint64 m_totalFiles = 0;
     quint64 m_totalSize = 0;
     bool m_pass = false;
+    QString m_finalStatus = QStringLiteral("FAIL");
+    bool m_verificationPerformed = false;
     DitOffloadWorker *m_activeWorker = nullptr;
     QString m_txtExport;
     QString m_csvExport;

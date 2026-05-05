@@ -50,6 +50,8 @@ bool AppController::canExport() const { return m_canExport; }
 quint64 AppController::totalFiles() const { return m_totalFiles; }
 quint64 AppController::totalSize() const { return m_totalSize; }
 bool AppController::pass() const { return m_pass; }
+QString AppController::finalStatus() const { return m_finalStatus; }
+bool AppController::verificationPerformed() const { return m_verificationPerformed; }
 
 void AppController::chooseSourceFolder()
 {
@@ -107,6 +109,8 @@ void AppController::startOffload()
     setStatusText(QStringLiteral("Starting offload..."));
     setCurrentFile(QString());
     setPass(false);
+    m_finalStatus = QStringLiteral("FAIL");
+    m_verificationPerformed = false;
     m_canExport = false;
     emit exportStateChanged();
     emit summaryChanged();
@@ -147,6 +151,8 @@ void AppController::startOffload()
         setOverallProgress(1.0);
         setStatusText(QStringLiteral("Offload complete."));
         setPass(report.allPass);
+        m_finalStatus = report.finalStatus;
+        m_verificationPerformed = report.verificationPerformed;
         m_totalFiles = report.totalFiles;
         m_totalSize = report.totalSize;
         m_txtExport = report.txtExport;
@@ -162,6 +168,8 @@ void AppController::startOffload()
         setOverallProgress(0.0);
         setStatusText(message);
         setPass(false);
+        m_finalStatus = QStringLiteral("FAIL");
+        m_verificationPerformed = false;
         appendLog(QStringLiteral("Offload failed: %1").arg(message));
     });
     connect(worker, &DitOffloadWorker::cancelled, this, [this] {
@@ -169,6 +177,8 @@ void AppController::startOffload()
         setOverallProgress(0.0);
         setStatusText(QStringLiteral("Offload cancelled."));
         setPass(false);
+        m_finalStatus = QStringLiteral("FAIL");
+        m_verificationPerformed = false;
         appendLog(QStringLiteral("Offload cancelled by user."));
     });
     connect(worker, &DitOffloadWorker::finished, thread, [thread](const FinalReportData &) { thread->quit(); });
