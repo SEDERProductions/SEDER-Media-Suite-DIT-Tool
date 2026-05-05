@@ -47,6 +47,7 @@ QString AppController::statusText() const { return m_statusText; }
 QString AppController::currentFile() const { return m_currentFile; }
 QStringList AppController::logLines() const { return m_logLines; }
 bool AppController::canExport() const { return m_canExport; }
+bool AppController::canExportMhl() const { return m_canExportMhl; }
 quint64 AppController::totalFiles() const { return m_totalFiles; }
 quint64 AppController::totalSize() const { return m_totalSize; }
 bool AppController::pass() const { return m_pass; }
@@ -108,7 +109,9 @@ void AppController::startOffload()
     setCurrentFile(QString());
     setPass(false);
     m_canExport = false;
+    m_canExportMhl = false;
     emit exportStateChanged();
+    emit canExportMhlChanged();
     emit summaryChanged();
     appendLog(QStringLiteral("Starting DIT offload."));
 
@@ -153,7 +156,9 @@ void AppController::startOffload()
         m_csvExport = report.csvExport;
         m_mhlExport = report.mhlExport;
         m_canExport = true;
+        m_canExportMhl = request.verifyAfterCopy && !m_mhlExport.trimmed().isEmpty();
         emit exportStateChanged();
+        emit canExportMhlChanged();
         emit summaryChanged();
         appendLog(QStringLiteral("Offload complete."));
     });
