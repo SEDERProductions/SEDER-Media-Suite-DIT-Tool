@@ -17,6 +17,9 @@ if [[ -n "${CMAKE_PREFIX_PATH:-}" ]]; then
   QT_PREFIX_ARGS+=("-DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}")
 fi
 
+
+python3 "$ROOT_DIR/scripts/generate-icons.py" "$ROOT_DIR"
+
 rm -rf "$BUILD_DIR" "$APPDIR"
 mkdir -p "$ARTIFACT_DIR" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/scalable/apps"
 

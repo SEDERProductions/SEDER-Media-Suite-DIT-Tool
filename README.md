@@ -56,6 +56,12 @@ cmake -S qt -B qt/build -G Ninja -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DCMA
 cmake --build qt/build --config Release
 ```
 
+Regenerate generated app icons from the canonical SVG before packaging:
+
+```sh
+python3 scripts/generate-icons.py .
+```
+
 Developer checks:
 
 ```sh

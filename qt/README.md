@@ -49,6 +49,12 @@ ctest --test-dir qt/build --output-on-failure
 
 ## Packaging
 
+Before packaging, regenerate icon derivatives from `assets/icon.svg`:
+
+```sh
+python3 scripts/generate-icons.py .
+```
+
 The release workflow calls the scripts in `scripts/`:
 
 ```sh

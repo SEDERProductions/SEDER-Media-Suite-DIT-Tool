@@ -14,6 +14,9 @@ $ArtifactDir = if ($env:ARTIFACT_DIR) { $env:ARTIFACT_DIR } else { Join-Path $Ro
 Remove-Item -Recurse -Force $BuildDir, $InstallDir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $ArtifactDir, $InstallDir | Out-Null
 
+python (Join-Path $RootDir "scripts/generate-icons.py") $RootDir
+
+
 $ConfigureArgs = @(
     "-S", (Join-Path $RootDir "qt"),
     "-B", $BuildDir,
