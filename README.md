@@ -83,6 +83,8 @@ Public releases are built automatically by GitHub Actions on every push to `main
 
 The release workflow uploads ZIP/tarball assets and `SHA256SUMS.txt` to GitHub Releases.
 
+The platform package scripts share version lookup, artifact naming, and SHA256 generation through `scripts/package_common.py`; keep download asset names aligned there when updating release packaging.
+
 ## License
 
 Code is released under [GPL-3.0-only](LICENSE).

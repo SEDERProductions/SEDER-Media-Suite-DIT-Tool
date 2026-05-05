@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${VERSION:-}"
-ARTIFACT_HELPER="$ROOT_DIR/scripts/release-artifacts.sh"
+VERSION="${VERSION:-$(python3 "$ROOT_DIR/scripts/package_common.py" version --root "$ROOT_DIR")}"
+VERSION="${VERSION#v}"
 
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/qt/build-release-linux}"
 APPDIR="${APPDIR:-$ROOT_DIR/dist/linux/AppDir}"
@@ -40,7 +40,8 @@ Categories=AudioVideo;Utility;
 Terminal=false
 DESKTOP
 
-TARBALL="$ARTIFACT_DIR/$($ARTIFACT_HELPER --filename linux-x64)"
+TARBALL_NAME="$(python3 "$ROOT_DIR/scripts/package_common.py" artifact-name --version "$VERSION" --platform linux-x64)"
+TARBALL="$ARTIFACT_DIR/$TARBALL_NAME"
 tar -C "$APPDIR/usr" -czf "$TARBALL" .
 
 LINUXDEPLOYQT_BIN="${LINUXDEPLOYQT:-}"
@@ -55,10 +56,12 @@ if [[ -n "$LINUXDEPLOYQT_BIN" && -x "$LINUXDEPLOYQT_BIN" ]]; then
   )
   appimage="$(find "$ROOT_DIR/dist/linux" -maxdepth 1 -name '*.AppImage' -print -quit)"
   if [[ -n "$appimage" ]]; then
-    mv "$appimage" "$ARTIFACT_DIR/seder-dit-tool-v${VERSION}-linux-x64.AppImage"
+    APPIMAGE_NAME="$(python3 "$ROOT_DIR/scripts/package_common.py" artifact-name --version "$VERSION" --platform linux-x64-appimage)"
+    mv "$appimage" "$ARTIFACT_DIR/$APPIMAGE_NAME"
   else
     echo "linuxdeployqt ran but did not produce an AppImage; continuing with tarball only" >&2
   fi
 fi
 
+python3 "$ROOT_DIR/scripts/package_common.py" checksums --artifact-dir "$ARTIFACT_DIR" >/dev/null
 echo "Packaged Linux artifacts in $ARTIFACT_DIR"
