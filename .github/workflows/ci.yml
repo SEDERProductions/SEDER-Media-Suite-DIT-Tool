@@ -30,6 +30,21 @@ jobs:
       - name: Test
         run: cargo test --manifest-path Cargo.toml --locked
 
+
+  release-naming:
+    name: Release asset naming guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate expected release asset names
+        env:
+          VERSION: v0.0.0
+        run: scripts/release-artifacts.sh --list > /tmp/release-assets.generated
+      - name: Validate README references generated naming rules
+        run: rg -q 'scripts/release-artifacts.sh --list' README.md
+      - name: Validate release workflow uses generated naming rules
+        run: rg -q 'scripts/release-artifacts.sh --list' .github/workflows/release.yml
+
   qt:
     name: Qt build and tests (${{ matrix.name }})
     # These are standard public-repo runner labels. Public repositories get

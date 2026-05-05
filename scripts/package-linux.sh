@@ -3,10 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="${VERSION:-}"
-if [[ -z "$VERSION" ]]; then
-  VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -1)"
-fi
-VERSION="${VERSION#v}"
+ARTIFACT_HELPER="$ROOT_DIR/scripts/release-artifacts.sh"
 
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/qt/build-release-linux}"
 APPDIR="${APPDIR:-$ROOT_DIR/dist/linux/AppDir}"
@@ -40,7 +37,7 @@ Categories=AudioVideo;Utility;
 Terminal=false
 DESKTOP
 
-TARBALL="$ARTIFACT_DIR/seder-dit-tool-v${VERSION}-linux-x64.tar.gz"
+TARBALL="$ARTIFACT_DIR/$($ARTIFACT_HELPER --filename linux-x64)"
 tar -C "$APPDIR/usr" -czf "$TARBALL" .
 
 LINUXDEPLOYQT_BIN="${LINUXDEPLOYQT:-}"

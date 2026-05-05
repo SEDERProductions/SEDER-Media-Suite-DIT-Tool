@@ -11,12 +11,13 @@ Local-first DIT folder verification for source and destination offloads. The app
 
 **[Download the latest release](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/releases/latest)** (see [Releases](https://github.com/SEDERProductions/SEDER-Media-Suite-DIT-Tool/releases) for all versions)
 
-| Platform | Asset |
-| --- | --- |
-| macOS Apple Silicon | `seder-dit-tool-macos-arm64.zip` |
-| macOS Intel | `seder-dit-tool-macos-x64.zip` |
-| Windows x64 | `seder-dit-tool-windows-x64.zip` |
-| Linux x64 | `seder-dit-tool-linux-x64.tar.gz` |
+Release asset names are generated from `Cargo.toml` package metadata (`name` + `version`) via `scripts/release-artifacts.sh`.
+
+To list the exact filenames for a given release tag/version:
+
+```sh
+VERSION=vX.Y.Z scripts/release-artifacts.sh --list
+```
 
 Download `SHA256SUMS.txt` from the same release and verify the file before launching.
 

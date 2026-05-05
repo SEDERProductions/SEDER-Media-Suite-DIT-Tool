@@ -3,10 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="${VERSION:-}"
-if [[ -z "$VERSION" ]]; then
-  VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -1)"
-fi
-VERSION="${VERSION#v}"
+ARTIFACT_HELPER="$ROOT_DIR/scripts/release-artifacts.sh"
 
 ARCH="${ARCH:-$(uname -m)}"
 case "$ARCH" in
@@ -48,7 +45,7 @@ codesign --force --deep --options runtime \
   "$APP_BUNDLE"
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
-ARTIFACT="$ARTIFACT_DIR/seder-dit-tool-v${VERSION}-${PLATFORM}.zip"
+ARTIFACT="$ARTIFACT_DIR/$($ARTIFACT_HELPER --filename ${PLATFORM})"
 rm -f "$ARTIFACT"
 ditto -c -k --keepParent "$APP_BUNDLE" "$ARTIFACT"
 

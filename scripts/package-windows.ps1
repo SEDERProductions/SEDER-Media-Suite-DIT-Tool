@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $RootDir = Resolve-Path (Join-Path $PSScriptRoot "..")
+$PackageName = (Select-String -Path (Join-Path $RootDir "Cargo.toml") -Pattern '^name = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
 $Version = $env:VERSION
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = (Select-String -Path (Join-Path $RootDir "Cargo.toml") -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
@@ -60,7 +61,7 @@ Get-ChildItem -Path $InstallDir -Recurse -Filter *.exe | ForEach-Object {
     if ($LASTEXITCODE -ne 0) { throw "signtool failed for $($_.FullName)" }
 }
 
-$Artifact = Join-Path $ArtifactDir "seder-dit-tool-v$Version-windows-x64.zip"
+$Artifact = Join-Path $ArtifactDir "$PackageName-v$Version-windows-x64.zip"
 Remove-Item -Force $Artifact -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $InstallDir "*") -DestinationPath $Artifact
 
