@@ -44,20 +44,31 @@ function(seder_config_to_cargo_profile config out_profile out_release_flag)
     set(${out_release_flag} "${release_flag}" PARENT_SCOPE)
 endfunction()
 
+set(SEDER_RUST_TARGET "" CACHE STRING "Rust target triple for cross-compilation (e.g. x86_64-apple-darwin)")
+
+set(_seder_cargo_extra_args "")
+if(SEDER_RUST_TARGET)
+    list(APPEND _seder_cargo_extra_args "--target" "${SEDER_RUST_TARGET}")
+endif()
+
 set(_seder_known_configs Debug Release RelWithDebInfo MinSizeRel)
 set(_seder_rust_outputs)
 set(_seder_seen_rust_outputs)
 
 foreach(_cfg IN LISTS _seder_known_configs)
     seder_config_to_cargo_profile("${_cfg}" _cargo_profile _cargo_release_flag)
-    set(_rust_staticlib_${_cfg} "${RUST_TARGET_DIR}/${_cargo_profile}/${CMAKE_STATIC_LIBRARY_PREFIX}seder_dit_tool${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    if(SEDER_RUST_TARGET)
+        set(_rust_staticlib_${_cfg} "${RUST_TARGET_DIR}/${SEDER_RUST_TARGET}/${_cargo_profile}/${CMAKE_STATIC_LIBRARY_PREFIX}seder_dit_tool${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    else()
+        set(_rust_staticlib_${_cfg} "${RUST_TARGET_DIR}/${_cargo_profile}/${CMAKE_STATIC_LIBRARY_PREFIX}seder_dit_tool${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    endif()
 
     # Only add custom_command for unique output paths (Release/RelWithDebInfo/MinSizeRel all map to Cargo release profile)
     if(NOT "${_rust_staticlib_${_cfg}}" IN_LIST _seder_seen_rust_outputs)
         add_custom_command(
             OUTPUT "${_rust_staticlib_${_cfg}}"
             COMMAND ${CMAKE_COMMAND} -E echo "Building SEDER DIT Rust core for CMake config ${_cfg} using Cargo profile ${_cargo_profile}"
-            COMMAND cargo build --manifest-path "${RUST_MANIFEST}" ${_cargo_release_flag} --target-dir "${RUST_TARGET_DIR}"
+            COMMAND cargo build --manifest-path "${RUST_MANIFEST}" ${_cargo_release_flag} --target-dir "${RUST_TARGET_DIR}" ${_seder_cargo_extra_args}
             DEPENDS "${RUST_MANIFEST}" ${RUST_SOURCES}
             WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
             COMMENT "Building SEDER DIT Rust core (${_cfg})"

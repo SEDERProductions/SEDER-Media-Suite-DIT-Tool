@@ -27,11 +27,18 @@ python3 "$ROOT_DIR/scripts/generate-icons.py" "$ROOT_DIR"
 rm -rf "$BUILD_DIR" "$INSTALL_DIR"
 mkdir -p "$ARTIFACT_DIR" "$INSTALL_DIR"
 
+CMAKE_EXTRA_ARGS=()
+if [[ "$ARCH" == "x86_64" ]]; then
+    CMAKE_EXTRA_ARGS+=("-DCMAKE_OSX_ARCHITECTURES=x86_64")
+    export SEDER_RUST_TARGET="x86_64-apple-darwin"
+fi
+
 cmake -S "$ROOT_DIR/qt" -B "$BUILD_DIR" -G "$GENERATOR" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
   -DBUILD_TESTING=OFF \
-  ${QT_PREFIX_ARGS[@]+"${QT_PREFIX_ARGS[@]}"}
+  ${QT_PREFIX_ARGS[@]+"${QT_PREFIX_ARGS[@]}"} \
+  ${CMAKE_EXTRA_ARGS[@]+"${CMAKE_EXTRA_ARGS[@]}"}
 cmake --build "$BUILD_DIR" --config Release
 cmake --install "$BUILD_DIR" --config Release
 

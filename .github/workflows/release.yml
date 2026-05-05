@@ -92,13 +92,18 @@ jobs:
             package_command: bash scripts/package-macos.sh
             shell: bash
           - artifact_name: macos-x64
-            os: macos-13
+            os: macos-latest
             package_command: bash scripts/package-macos.sh
             shell: bash
+            rust_target: x86_64-apple-darwin
 
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cross-compilation Rust target
+        if: matrix.rust_target != ''
+        run: rustup target add ${{ matrix.rust_target }}
 
       - name: Install Linux build packages
         if: runner.os == 'Linux'
