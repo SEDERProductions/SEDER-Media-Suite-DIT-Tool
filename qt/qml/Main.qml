@@ -138,6 +138,67 @@ ApplicationWindow {
         }
     }
 
+
+
+    component StyledCheckBox: CheckBox {
+        id: control
+        font.family: root.sans
+        font.pixelSize: 12
+        spacing: 8
+        hoverEnabled: true
+        opacity: enabled ? 1 : 0.45
+        indicator: Rectangle {
+            implicitWidth: 16
+            implicitHeight: 16
+            x: control.leftPadding
+            y: control.topPadding + (control.availableHeight - height) / 2
+            radius: 3
+            color: control.checked ? red : panelAlt
+            border.color: control.visualFocus ? red : (control.hovered ? muted : line)
+            border.width: control.visualFocus ? 2 : 1
+            Rectangle {
+                anchors.centerIn: parent
+                width: 8
+                height: 8
+                radius: 2
+                visible: control.checked
+                color: "#ffffff"
+            }
+        }
+        contentItem: Text {
+            text: control.text
+            font: control.font
+            color: control.enabled ? ink : muted
+            leftPadding: control.indicator.width + control.spacing
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+    }
+
+    component StyledProgressBar: ProgressBar {
+        id: control
+        from: 0
+        to: 1
+        hoverEnabled: true
+        opacity: enabled ? 1 : 0.45
+        background: Rectangle {
+            implicitWidth: 180
+            implicitHeight: 8
+            radius: 4
+            color: panelAlt
+            border.color: control.visualFocus ? red : (control.hovered ? muted : line)
+            border.width: control.visualFocus ? 2 : 1
+        }
+        contentItem: Item {
+            Rectangle {
+                width: control.visualPosition * parent.width
+                height: parent.height
+                radius: 4
+                color: red
+            }
+        }
+    }
+
     component PathPicker: Rectangle {
         id: pathPickerRoot
         property string label: ""
@@ -284,7 +345,7 @@ ApplicationWindow {
                                             horizontalAlignment: Text.AlignRight
                                             Layout.fillWidth: true
                                         }
-                                        ProgressBar {
+                                        StyledProgressBar {
                                             Layout.fillWidth: true
                                             from: 0
                                             to: 1
@@ -318,7 +379,7 @@ ApplicationWindow {
                         enabled: !appController.busy
                         onActivated: appController.verifyAfterCopy = (index === 0)
                     }
-                    CheckBox {
+                    StyledCheckBox {
                         text: "Ignore hidden/system files"
                         checked: appController.ignoreHiddenSystem
                         enabled: !appController.busy
@@ -596,7 +657,7 @@ ApplicationWindow {
                             font.pixelSize: 12
                             elide: Text.ElideRight
                         }
-                        ProgressBar {
+                        StyledProgressBar {
                             Layout.preferredWidth: 180
                             from: 0
                             to: 1
