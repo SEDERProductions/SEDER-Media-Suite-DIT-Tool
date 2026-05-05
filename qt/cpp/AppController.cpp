@@ -125,9 +125,26 @@ void AppController::startOffload()
 
     connect(thread, &QThread::started, worker, &DitOffloadWorker::run);
     connect(worker, &DitOffloadWorker::progress, this, [this](const OffloadProgressData &update) {
-        setStatusText(update.phase);
+        const bool isScanningPhase = update.phase.startsWith(QStringLiteral("scanning_source"));
+        if (update.phase == QStringLiteral("scanning_source_start")) {
+            setStatusText(QStringLiteral("Scanning source..."));
+        } else if (update.phase == QStringLiteral("scanning_source_complete")) {
+            setStatusText(QStringLiteral("Source scan complete. Starting copy..."));
+        } else if (update.phase == QStringLiteral("scanning_source")) {
+            setStatusText(QStringLiteral("Scanning source..."));
+        } else if (update.phase == QStringLiteral("verifying")) {
+            setStatusText(QStringLiteral("Verifying copies..."));
+        } else {
+            setStatusText(QStringLiteral("Copying files..."));
+        }
         setCurrentFile(update.currentFile);
-        if (update.overallBytesTotal > 0) {
+        if (isScanningPhase) {
+            if (update.overallFilesTotal > 0) {
+                setOverallProgress(static_cast<double>(update.overallFilesCompleted) / static_cast<double>(update.overallFilesTotal));
+            } else {
+                setOverallProgress(0.0);
+            }
+        } else if (update.overallBytesTotal > 0) {
             setOverallProgress(static_cast<double>(update.overallBytesCompleted) / static_cast<double>(update.overallBytesTotal));
         }
         for (int i = 0; i < update.destinations.size() && i < m_destinationModel->count(); ++i) {
