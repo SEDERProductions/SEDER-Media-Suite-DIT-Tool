@@ -521,7 +521,13 @@ ApplicationWindow {
                     Item { Layout.fillWidth: true }
                     QuietButton { text: "TXT"; enabled: appController.canExport && !appController.busy; onClicked: appController.exportTxt() }
                     QuietButton { text: "CSV"; enabled: appController.canExport && !appController.busy; onClicked: appController.exportCsv() }
-                    QuietButton { text: "MHL"; enabled: appController.canExport && !appController.busy; onClicked: appController.exportMhl() }
+                    QuietButton {
+                        text: "MHL"
+                        enabled: appController.canExportMhl && !appController.busy
+                        onClicked: appController.exportMhl()
+                        ToolTip.visible: hovered && !enabled
+                        ToolTip.text: "MHL export requires checksum-backed verification."
+                    }
                 }
             }
 
