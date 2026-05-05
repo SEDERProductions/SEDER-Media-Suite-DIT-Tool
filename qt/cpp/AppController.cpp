@@ -145,8 +145,14 @@ void AppController::startOffload()
     connect(worker, &DitOffloadWorker::finished, this, [this](const FinalReportData &report) {
         setBusy(false);
         setOverallProgress(1.0);
-        setStatusText(QStringLiteral("Offload complete."));
         setPass(report.allPass);
+        if (report.allPass) {
+            setStatusText(QStringLiteral("Offload complete."));
+            appendLog(QStringLiteral("Offload complete."));
+        } else {
+            setStatusText(QStringLiteral("Offload completed with errors."));
+            appendLog(QStringLiteral("Offload completed with errors."));
+        }
         m_totalFiles = report.totalFiles;
         m_totalSize = report.totalSize;
         m_txtExport = report.txtExport;
@@ -155,7 +161,6 @@ void AppController::startOffload()
         m_canExport = true;
         emit exportStateChanged();
         emit summaryChanged();
-        appendLog(QStringLiteral("Offload complete."));
     });
     connect(worker, &DitOffloadWorker::failed, this, [this](const QString &message) {
         setBusy(false);
