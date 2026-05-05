@@ -108,6 +108,7 @@ jobs:
             build-essential \
             cmake \
             curl \
+            imagemagick \
             libgl1-mesa-dev \
             libxkbcommon-x11-0 \
             libxcb-cursor0 \
