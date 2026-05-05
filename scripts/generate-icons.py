@@ -50,6 +50,13 @@ def rasterize(svg: Path, out_png: Path, size: int) -> None:
             check=True,
         )
         return
+    if have("convert"):
+        subprocess.run(
+            ["convert", "-background", "none", "-density", "384",
+             "-resize", f"{size}x{size}", str(svg), str(out_png)],
+            check=True,
+        )
+        return
     if have("rsvg-convert"):
         subprocess.run(
             ["rsvg-convert", "-w", str(size), "-h", str(size),
@@ -65,7 +72,7 @@ def rasterize(svg: Path, out_png: Path, size: int) -> None:
         )
         return
     raise RuntimeError(
-        "No SVG rasterizer found. Install ImageMagick (`magick`), "
+        "No SVG rasterizer found. Install ImageMagick (`magick` or `convert`), "
         "librsvg (`rsvg-convert`), or run on macOS (`sips`)."
     )
 
