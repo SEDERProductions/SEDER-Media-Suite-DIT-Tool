@@ -468,6 +468,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn is_hidden_system_folders() {
         use std::path::Path;
         assert!(is_hidden_or_system(Path::new("$RECYCLE.BIN/something")));

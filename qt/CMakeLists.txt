@@ -95,6 +95,7 @@ set_target_properties(seder_dit_rust PROPERTIES
 add_dependencies(seder_dit_rust seder_dit_rust_build)
 
 set(SEDER_APP_ICON_MACOS "${CMAKE_CURRENT_SOURCE_DIR}/../assets/icon.icns")
+set(SEDER_APP_ICON_WINDOWS "${CMAKE_CURRENT_SOURCE_DIR}/../assets/icon.ico")
 set(SEDER_APP_ICON_WINDOWS_RC "${CMAKE_CURRENT_SOURCE_DIR}/app.rc")
 
 set(SEDER_APP_PLATFORM_SOURCES "")
@@ -103,7 +104,7 @@ if(APPLE AND EXISTS "${SEDER_APP_ICON_MACOS}")
         MACOSX_PACKAGE_LOCATION "Resources")
     list(APPEND SEDER_APP_PLATFORM_SOURCES "${SEDER_APP_ICON_MACOS}")
 endif()
-if(WIN32)
+if(WIN32 AND EXISTS "${SEDER_APP_ICON_WINDOWS}")
     list(APPEND SEDER_APP_PLATFORM_SOURCES "${SEDER_APP_ICON_WINDOWS_RC}")
 endif()
 
