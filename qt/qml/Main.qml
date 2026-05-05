@@ -28,6 +28,17 @@ ApplicationWindow {
 
     property bool metadataExpanded: false
     property bool logAutoScrollEnabled: true
+    readonly property real scaleFactor: Math.max(1.0, Math.min(Screen.devicePixelRatio, 2.0))
+    readonly property int spaceSmall: Math.round(6 * scaleFactor)
+    readonly property int spaceMedium: Math.round(10 * scaleFactor)
+    readonly property int spaceLarge: Math.round(16 * scaleFactor)
+    readonly property int fontSmall: Math.round(10 * scaleFactor)
+    readonly property int fontMedium: Math.round(12 * scaleFactor)
+    readonly property int fontLarge: Math.round(14 * scaleFactor)
+    readonly property int fontTitle: Math.round(24 * scaleFactor)
+    readonly property int fieldHeight: Math.round(32 * scaleFactor)
+    readonly property int actionHeight: Math.round(38 * scaleFactor)
+    readonly property int compactPanelHeight: Math.round(58 * scaleFactor)
 
     color: bg
 
@@ -860,3 +871,4 @@ ApplicationWindow {
         }
     }
 }
+
