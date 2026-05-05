@@ -419,16 +419,40 @@ ApplicationWindow {
                             spacing: 8
                             MetaLabel { text: "04 / Metadata" }
                             Item { Layout.fillWidth: true }
-                            Text {
+                            ToolButton {
+                                id: metadataToggleButton
                                 text: metadataExpanded ? "Collapse ▼" : "Expand ▶"
-                                color: faint
-                                font.family: root.mono
-                                font.pixelSize: 10
-                            }
-                            MouseArea {
-                                anchors.fill: parent
+                                focusPolicy: Qt.StrongFocus
+                                Accessible.name: metadataExpanded ? "Collapse metadata fields" : "Expand metadata fields"
+                                Accessible.description: Accessible.name
+                                ToolTip.visible: hovered
+                                ToolTip.text: Accessible.name
                                 onClicked: metadataExpanded = !metadataExpanded
-                                cursorShape: Qt.PointingHandCursor
+                                Keys.onReturnPressed: {
+                                    metadataExpanded = !metadataExpanded
+                                    event.accepted = true
+                                }
+                                Keys.onEnterPressed: {
+                                    metadataExpanded = !metadataExpanded
+                                    event.accepted = true
+                                }
+                                Keys.onSpacePressed: {
+                                    metadataExpanded = !metadataExpanded
+                                    event.accepted = true
+                                }
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: parent.down ? ink : faint
+                                    font.family: root.mono
+                                    font.pixelSize: 10
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                background: Rectangle {
+                                    radius: 4
+                                    color: metadataToggleButton.down ? panelAlt : "transparent"
+                                    border.color: metadataToggleButton.visualFocus ? line : "transparent"
+                                }
                             }
                         }
                         ColumnLayout {
