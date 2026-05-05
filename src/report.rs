@@ -24,6 +24,7 @@ pub fn report_txt(report: &OffloadReport) -> String {
         let status = match dest.state {
             DestinationState::Complete => "PASS",
             DestinationState::Failed => "FAIL",
+            DestinationState::Cancelled => "CANCELLED",
             _ => "INCOMPLETE",
         };
         out.push_str(&format!("  Status:   {}\n", status));
@@ -55,6 +56,7 @@ pub fn report_csv(report: &OffloadReport) -> String {
         let status = match dest.state {
             DestinationState::Complete => "PASS",
             DestinationState::Failed => "FAIL",
+            DestinationState::Cancelled => "CANCELLED",
             _ => "INCOMPLETE",
         };
         let error = dest.final_error.as_deref().unwrap_or("");

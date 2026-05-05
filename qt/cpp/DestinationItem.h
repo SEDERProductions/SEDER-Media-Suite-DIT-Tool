@@ -19,7 +19,8 @@ public:
         Copying = 2,
         Verifying = 3,
         Complete = 4,
-        Failed = 5
+        Failed = 5,
+        Cancelled = 6
     };
     Q_ENUM(State)
 

@@ -105,7 +105,7 @@ pub fn offload_files(
         if cancel_flag.load(Ordering::Relaxed) {
             for r in &mut results {
                 if r.state != DestinationState::Complete {
-                    r.state = DestinationState::Failed;
+                    r.state = DestinationState::Cancelled;
                     if r.final_error.is_none() {
                         r.final_error = Some("Cancelled by user".into());
                     }
@@ -206,7 +206,7 @@ pub fn offload_files(
     }
 
     for r in &mut results {
-        if r.state != DestinationState::Failed && r.files_failed == 0 {
+        if r.state != DestinationState::Failed && r.state != DestinationState::Cancelled && r.files_failed == 0 {
             r.state = DestinationState::Complete;
         }
     }
