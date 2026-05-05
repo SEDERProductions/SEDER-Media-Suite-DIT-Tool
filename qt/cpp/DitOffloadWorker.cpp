@@ -109,7 +109,10 @@ void DitOffloadWorker::run()
     FinalReportData report;
     report.txtExport = QString::fromUtf8(seder_report_export_txt(handle));
     report.csvExport = QString::fromUtf8(seder_report_export_csv(handle));
-    report.mhlExport = QString::fromUtf8(seder_report_export_mhl(handle));
+    report.checksumVerified = m_request.verifyAfterCopy;
+    if (report.checksumVerified) {
+        report.mhlExport = QString::fromUtf8(seder_report_export_mhl(handle));
+    }
 
     uint64_t totalFiles = 0, totalSize = 0;
     size_t destCount = 0;

@@ -24,6 +24,7 @@ class AppController final : public QObject {
     Q_PROPERTY(QString currentFile READ currentFile NOTIFY currentFileChanged)
     Q_PROPERTY(QStringList logLines READ logLines NOTIFY logLinesChanged)
     Q_PROPERTY(bool canExport READ canExport NOTIFY exportStateChanged)
+    Q_PROPERTY(bool canExportMhl READ canExportMhl NOTIFY exportStateChanged)
     Q_PROPERTY(quint64 totalFiles READ totalFiles NOTIFY summaryChanged)
     Q_PROPERTY(quint64 totalSize READ totalSize NOTIFY summaryChanged)
     Q_PROPERTY(bool pass READ pass NOTIFY summaryChanged)
@@ -54,6 +55,7 @@ public:
     QString currentFile() const;
     QStringList logLines() const;
     bool canExport() const;
+    bool canExportMhl() const;
     quint64 totalFiles() const;
     quint64 totalSize() const;
     bool pass() const;
@@ -116,4 +118,5 @@ private:
     QString m_txtExport;
     QString m_csvExport;
     QString m_mhlExport;
+    bool m_canExportMhl = false;
 };

@@ -82,10 +82,10 @@ pub extern "C" fn seder_offload_start(
     user_data: *mut c_void,
     error_out: *mut *mut c_char,
 ) -> *mut OffloadReportHandle {
-    let result = catch_unwind(|| {
+    let result = catch_unwind(|| -> anyhow::Result<*mut OffloadReportHandle> {
         let req = unsafe {
             if request.is_null() {
-                return std::ptr::null_mut();
+                return Err(anyhow!("Null offload request pointer"));
             }
             &*request
         };
@@ -144,7 +144,7 @@ pub extern "C" fn seder_offload_start(
         let mut progress_strings: Vec<(CString, Option<CString>)> = Vec::new();
         let mut dest_progress_vec: Vec<SederDestinationProgress> = Vec::new();
 
-        let progress_callback = |progress: OffloadProgress| {
+        let mut progress_callback = |progress: OffloadProgress| {
             // Update cancel flag from Qt side
             if !cancel_ptr.is_null() {
                 if unsafe { *cancel_ptr } != 0 {
@@ -221,11 +221,12 @@ pub extern "C" fn seder_offload_start(
             destination_results,
             timestamp,
             warnings,
+            checksum_verified: offload_request.options.verify_after_copy,
         };
 
         let txt = report::report_txt(&report);
         let csv = report::report_csv(&report);
-        let mhl = report::report_mhl(&report, 0);
+        let mhl = report::report_mhl(&report, 0).unwrap_or_default();
 
         let handle = Box::new(OffloadReportHandle {
             report,

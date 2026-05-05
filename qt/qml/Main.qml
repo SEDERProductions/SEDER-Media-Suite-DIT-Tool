@@ -318,6 +318,14 @@ ApplicationWindow {
                         enabled: !appController.busy
                         onActivated: appController.verifyAfterCopy = (index === 0)
                     }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "MHL export requires Verify after copy."
+                        color: muted
+                        font.family: root.sans
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
                     CheckBox {
                         text: "Ignore hidden/system files"
                         checked: appController.ignoreHiddenSystem
@@ -521,7 +529,14 @@ ApplicationWindow {
                     Item { Layout.fillWidth: true }
                     QuietButton { text: "TXT"; enabled: appController.canExport && !appController.busy; onClicked: appController.exportTxt() }
                     QuietButton { text: "CSV"; enabled: appController.canExport && !appController.busy; onClicked: appController.exportCsv() }
-                    QuietButton { text: "MHL"; enabled: appController.canExport && !appController.busy; onClicked: appController.exportMhl() }
+                    QuietButton {
+                        text: "MHL"
+                        enabled: appController.canExportMhl && !appController.busy
+                        visible: appController.canExportMhl || appController.canExport
+                        onClicked: appController.exportMhl()
+                        ToolTip.visible: hovered && !enabled
+                        ToolTip.text: "Requires Verify after copy"
+                    }
                 }
             }
 
