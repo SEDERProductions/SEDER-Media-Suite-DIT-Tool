@@ -46,20 +46,25 @@ endfunction()
 
 set(_seder_known_configs Debug Release RelWithDebInfo MinSizeRel)
 set(_seder_rust_outputs)
+set(_seder_seen_rust_outputs)
 
 foreach(_cfg IN LISTS _seder_known_configs)
     seder_config_to_cargo_profile("${_cfg}" _cargo_profile _cargo_release_flag)
     set(_rust_staticlib_${_cfg} "${RUST_TARGET_DIR}/${_cargo_profile}/${CMAKE_STATIC_LIBRARY_PREFIX}seder_dit_tool${CMAKE_STATIC_LIBRARY_SUFFIX}")
 
-    add_custom_command(
-        OUTPUT "${_rust_staticlib_${_cfg}}"
-        COMMAND ${CMAKE_COMMAND} -E echo "Building SEDER DIT Rust core for CMake config ${_cfg} using Cargo profile ${_cargo_profile}"
-        COMMAND cargo build --manifest-path "${RUST_MANIFEST}" ${_cargo_release_flag} --target-dir "${RUST_TARGET_DIR}"
-        DEPENDS "${RUST_MANIFEST}" ${RUST_SOURCES}
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
-        COMMENT "Building SEDER DIT Rust core (${_cfg})"
-        VERBATIM
-    )
+    # Only add custom_command for unique output paths (Release/RelWithDebInfo/MinSizeRel all map to Cargo release profile)
+    if(NOT "${_rust_staticlib_${_cfg}}" IN_LIST _seder_seen_rust_outputs)
+        add_custom_command(
+            OUTPUT "${_rust_staticlib_${_cfg}}"
+            COMMAND ${CMAKE_COMMAND} -E echo "Building SEDER DIT Rust core for CMake config ${_cfg} using Cargo profile ${_cargo_profile}"
+            COMMAND cargo build --manifest-path "${RUST_MANIFEST}" ${_cargo_release_flag} --target-dir "${RUST_TARGET_DIR}"
+            DEPENDS "${RUST_MANIFEST}" ${RUST_SOURCES}
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.."
+            COMMENT "Building SEDER DIT Rust core (${_cfg})"
+            VERBATIM
+        )
+        list(APPEND _seder_seen_rust_outputs "${_rust_staticlib_${_cfg}}")
+    endif()
 
     list(APPEND _seder_rust_outputs "${_rust_staticlib_${_cfg}}")
 endforeach()
@@ -93,7 +98,7 @@ set(SEDER_APP_ICON_MACOS "${CMAKE_CURRENT_SOURCE_DIR}/../assets/icon.icns")
 set(SEDER_APP_ICON_WINDOWS_RC "${CMAKE_CURRENT_SOURCE_DIR}/app.rc")
 
 set(SEDER_APP_PLATFORM_SOURCES "")
-if(APPLE)
+if(APPLE AND EXISTS "${SEDER_APP_ICON_MACOS}")
     set_source_files_properties("${SEDER_APP_ICON_MACOS}" PROPERTIES
         MACOSX_PACKAGE_LOCATION "Resources")
     list(APPEND SEDER_APP_PLATFORM_SOURCES "${SEDER_APP_ICON_MACOS}")

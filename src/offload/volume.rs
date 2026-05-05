@@ -1,4 +1,4 @@
-use std::path::{Component, Path};
+use std::path::Path;
 
 /// Returns a stable per-volume identifier.
 pub fn volume_id(path: &Path) -> Option<u64> {
@@ -9,6 +9,7 @@ pub fn volume_id(path: &Path) -> Option<u64> {
     }
     #[cfg(windows)]
     {
+        use std::path::Component;
         let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         if let Some(prefix) = canonical.components().next() {
             if let Component::Prefix(prefix) = prefix {
@@ -20,6 +21,7 @@ pub fn volume_id(path: &Path) -> Option<u64> {
     }
 }
 
+#[cfg(windows)]
 fn fxhash(s: &str) -> u64 {
     let mut h: u64 = 0;
     for b in s.bytes() {

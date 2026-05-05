@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+
 
 const CHUNK_SIZE: usize = 1024 * 1024; // 1 MiB
 const CHANNEL_BOUND: usize = 16;
@@ -102,7 +102,7 @@ pub fn offload_files(
     let mut overall_files_completed = 0u64;
     let mut overall_bytes_completed = 0u64;
 
-    for (file_idx, file_entry) in scan.files.iter().enumerate() {
+    for file_entry in &scan.files {
         if cancel_flag.load(Ordering::Relaxed) {
             for r in &mut results {
                 if r.state != DestinationState::Complete {
@@ -128,7 +128,7 @@ pub fn offload_files(
         match copy_result {
             Ok(dest_hashes) => {
                 for (idx, hash) in dest_hashes.iter().enumerate() {
-                    if let Some(h) = hash {
+                    if hash.is_some() {
                         results[idx].files_copied += 1;
                         results[idx].bytes_copied += file_entry.size;
                         results[idx].state = DestinationState::Copying;
@@ -373,12 +373,12 @@ fn glob_match(pattern: &str, text: &str) -> bool {
         if parts.len() == 2 {
             return text.ends_with(parts[1]);
         }
-        if parts.last().map_or(true, |p| p.is_empty()) {
+        if parts.last().is_none_or(|p| p.is_empty()) {
             let middle = &pattern[1..pattern.len() - 1];
             return text.contains(middle);
         }
     }
-    if parts.last().map_or(false, |p| p.is_empty()) {
+    if parts.last().is_some_and(|p| p.is_empty()) {
         return text.starts_with(parts[0]);
     }
     if parts.len() == 3 && parts[0].is_empty() && parts[2].is_empty() {

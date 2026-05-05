@@ -76,7 +76,7 @@ pub struct OffloadReportHandle {
 // ============================================================================
 
 #[no_mangle]
-pub extern "C" fn seder_offload_start(
+pub unsafe extern "C" fn seder_offload_start(
     request: *const SederOffloadRequest,
     callback: SederOffloadProgressCallback,
     user_data: *mut c_void,
@@ -135,10 +135,8 @@ pub extern "C" fn seder_offload_start(
 
         let mut progress_callback = |progress: OffloadProgress| {
             // Update cancel flag from Qt side
-            if !cancel_ptr.is_null() {
-                if unsafe { *cancel_ptr } != 0 {
-                    cancel_flag.store(true, Ordering::Relaxed);
-                }
+            if !cancel_ptr.is_null() && unsafe { *cancel_ptr } != 0 {
+                cancel_flag.store(true, Ordering::Relaxed);
             }
 
             progress_strings.clear();
@@ -307,7 +305,7 @@ pub extern "C" fn seder_offload_start(
 }
 
 #[no_mangle]
-pub extern "C" fn seder_report_free(handle: *mut OffloadReportHandle) {
+pub unsafe extern "C" fn seder_report_free(handle: *mut OffloadReportHandle) {
     if !handle.is_null() {
         unsafe {
             let _ = Box::from_raw(handle);
@@ -316,7 +314,7 @@ pub extern "C" fn seder_report_free(handle: *mut OffloadReportHandle) {
 }
 
 #[no_mangle]
-pub extern "C" fn seder_string_free(ptr: *mut c_char) {
+pub unsafe extern "C" fn seder_string_free(ptr: *mut c_char) {
     if !ptr.is_null() {
         unsafe {
             let _ = CString::from_raw(ptr);
@@ -325,7 +323,7 @@ pub extern "C" fn seder_string_free(ptr: *mut c_char) {
 }
 
 #[no_mangle]
-pub extern "C" fn seder_report_export_txt(handle: *mut OffloadReportHandle) -> *const c_char {
+pub unsafe extern "C" fn seder_report_export_txt(handle: *mut OffloadReportHandle) -> *const c_char {
     if handle.is_null() {
         return std::ptr::null();
     }
@@ -333,7 +331,7 @@ pub extern "C" fn seder_report_export_txt(handle: *mut OffloadReportHandle) -> *
 }
 
 #[no_mangle]
-pub extern "C" fn seder_report_export_csv(handle: *mut OffloadReportHandle) -> *const c_char {
+pub unsafe extern "C" fn seder_report_export_csv(handle: *mut OffloadReportHandle) -> *const c_char {
     if handle.is_null() {
         return std::ptr::null();
     }
@@ -341,7 +339,7 @@ pub extern "C" fn seder_report_export_csv(handle: *mut OffloadReportHandle) -> *
 }
 
 #[no_mangle]
-pub extern "C" fn seder_report_export_mhl(handle: *mut OffloadReportHandle) -> *const c_char {
+pub unsafe extern "C" fn seder_report_export_mhl(handle: *mut OffloadReportHandle) -> *const c_char {
     if handle.is_null() {
         return std::ptr::null();
     }
@@ -349,7 +347,7 @@ pub extern "C" fn seder_report_export_mhl(handle: *mut OffloadReportHandle) -> *
 }
 
 #[no_mangle]
-pub extern "C" fn seder_report_summary(
+pub unsafe extern "C" fn seder_report_summary(
     handle: *mut OffloadReportHandle,
     total_files_out: *mut u64,
     total_size_out: *mut u64,
@@ -374,7 +372,7 @@ pub extern "C" fn seder_report_summary(
 }
 
 #[no_mangle]
-pub extern "C" fn seder_report_dest_state(
+pub unsafe extern "C" fn seder_report_dest_state(
     handle: *mut OffloadReportHandle,
     dest_index: usize,
     state_out: *mut u32,
@@ -474,11 +472,11 @@ mod tests {
         assert_eq!(&ts[13..14], ":");
         assert_eq!(&ts[16..17], ":");
         let year: i32 = ts[0..4].parse().unwrap();
-        assert!(year >= 2025 && year <= 2099);
+        assert!((2025..=2099).contains(&year));
         let month: u32 = ts[5..7].parse().unwrap();
-        assert!(month >= 1 && month <= 12);
+        assert!((1..=12).contains(&month));
         let day: u32 = ts[8..10].parse().unwrap();
-        assert!(day >= 1 && day <= 31);
+        assert!((1..=31).contains(&day));
     }
 
     #[test]
