@@ -36,5 +36,7 @@ signals:
     void countChanged();
 
 private:
+    void wireItemSignals(DestinationItem *item);
+
     QVector<DestinationItem *> m_items;
 };

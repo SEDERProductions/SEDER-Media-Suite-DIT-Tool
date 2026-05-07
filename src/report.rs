@@ -10,17 +10,18 @@ pub fn report_txt(report: &OffloadReport) -> String {
     out.push_str(&format!("Card:      {}\n", report.metadata.card_name));
     out.push_str(&format!("Camera:    {}\n", report.metadata.camera_id));
     out.push_str(&format!("Source:    {}\n", report.source_path));
-    out.push_str(&format!(
-        "Files:     {}\n",
-        report.source_scan.total_files
-    ));
+    out.push_str(&format!("Files:     {}\n", report.source_scan.total_files));
     out.push_str(&format!(
         "Size:      {}\n\n",
         format_bytes(report.source_scan.total_size)
     ));
 
     for (idx, dest) in report.destination_results.iter().enumerate() {
-        out.push_str(&format!("Destination {}: {}\n", idx + 1, dest.config.path.display()));
+        out.push_str(&format!(
+            "Destination {}: {}\n",
+            idx + 1,
+            dest.config.path.display()
+        ));
         let status = match dest.state {
             DestinationState::Complete => "PASS",
             DestinationState::Failed => "FAIL",
@@ -61,14 +62,14 @@ pub fn report_csv(report: &OffloadReport) -> String {
         };
         let error = dest.final_error.as_deref().unwrap_or("");
         out.push_str(&format!(
-            "\"{}\",\"{}\",{},{},{},{},\"{}\"\n",
-            dest.config.label.as_deref().unwrap_or(""),
-            dest.config.path.display(),
+            "{},{},{},{},{},{},{}\n",
+            csv_field(dest.config.label.as_deref().unwrap_or("")),
+            csv_field(&dest.config.path.display().to_string()),
             status,
             dest.files_copied,
             dest.files_verified,
             dest.files_failed,
-            error.replace('"', "\"\"")
+            csv_field(error)
         ));
     }
     out
@@ -104,6 +105,10 @@ pub fn report_mhl(report: &OffloadReport, destination_index: usize) -> String {
 
     out.push_str("</hashlist>\n");
     out
+}
+
+fn csv_field(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
 }
 
 fn format_bytes(value: u64) -> String {
@@ -160,20 +165,18 @@ mod tests {
                 total_size: 3 * 1024 * 1024,
                 total_files: 2,
             },
-            destination_results: vec![
-                DestinationResult {
-                    config: DestinationConfig {
-                        path: PathBuf::from("/Volumes/BACKUP01"),
-                        label: Some("Backup A".into()),
-                    },
-                    state: DestinationState::Complete,
-                    files_copied: 2,
-                    files_verified: 2,
-                    files_failed: 0,
-                    bytes_copied: 3 * 1024 * 1024,
-                    final_error: None,
+            destination_results: vec![DestinationResult {
+                config: DestinationConfig {
+                    path: PathBuf::from("/Volumes/BACKUP01"),
+                    label: Some("Backup A".into()),
                 },
-            ],
+                state: DestinationState::Complete,
+                files_copied: 2,
+                files_verified: 2,
+                files_failed: 0,
+                bytes_copied: 3 * 1024 * 1024,
+                final_error: None,
+            }],
             timestamp: "2026-05-04 12:00:00".into(),
             warnings: vec![],
         }
@@ -207,6 +210,20 @@ mod tests {
         let report = make_test_report();
         let csv = report_csv(&report);
         assert!(csv.starts_with("destination,path,status"));
+    }
+
+    #[test]
+    fn report_csv_escapes_quoted_fields() {
+        let mut report = make_test_report();
+        report.destination_results[0].config.label = Some("Backup \"A\"".into());
+        report.destination_results[0].config.path = PathBuf::from("/Volumes/BACKUP, 01");
+        report.destination_results[0].final_error = Some("bad \"checksum\"".into());
+
+        let csv = report_csv(&report);
+
+        assert!(csv.contains("\"Backup \"\"A\"\"\""));
+        assert!(csv.contains("\"/Volumes/BACKUP, 01\""));
+        assert!(csv.contains("\"bad \"\"checksum\"\"\""));
     }
 
     #[test]

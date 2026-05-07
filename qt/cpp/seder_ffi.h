@@ -14,7 +14,7 @@ typedef struct SederDestinationConfig {
 
 typedef struct SederOffloadRequest {
     const char *source_path;
-    SederDestinationConfig *destinations;
+    const SederDestinationConfig *destinations;
     size_t destination_count;
     const char *project_name;
     const char *shoot_date;
@@ -23,7 +23,7 @@ typedef struct SederOffloadRequest {
     const char *ignore_patterns;
     uint8_t ignore_hidden_system;
     uint8_t verify_after_copy;
-    volatile uint8_t *cancel_token;
+    uint8_t *cancel_token;
 } SederOffloadRequest;
 
 typedef struct SederDestinationProgress {
@@ -43,7 +43,7 @@ typedef struct SederOffloadProgress {
     uint64_t overall_bytes_completed;
     uint64_t overall_bytes_total;
     const char *current_file;
-    SederDestinationProgress *destinations;
+    const SederDestinationProgress *destinations;
     size_t destination_count;
 } SederOffloadProgress;
 

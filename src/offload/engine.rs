@@ -5,7 +5,6 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-
 const CHUNK_SIZE: usize = 1024 * 1024; // 1 MiB
 const CHANNEL_BOUND: usize = 16;
 
@@ -22,11 +21,24 @@ pub fn scan_source(
 ) -> anyhow::Result<SourceScan> {
     use walkdir::WalkDir;
 
+    let walker = WalkDir::new(source)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| {
+            if !options.ignore_hidden_system {
+                return true;
+            }
+            if entry.depth() == 0 {
+                return true;
+            }
+            !is_hidden_or_system(entry.path())
+        });
+
     let mut files = Vec::new();
     let mut total_size = 0u64;
     let mut total_files = 0u64;
 
-    for entry in WalkDir::new(source).follow_links(false) {
+    for entry in walker {
         let entry = entry?;
         if !entry.file_type().is_file() {
             continue;
@@ -39,7 +51,8 @@ pub fn scan_source(
         if options.ignore_hidden_system && is_hidden_or_system(path) {
             continue;
         }
-        if !options.ignore_patterns.is_empty() && should_ignore(&rel_str, &options.ignore_patterns) {
+        if !options.ignore_patterns.is_empty() && should_ignore(&rel_str, &options.ignore_patterns)
+        {
             continue;
         }
 
@@ -135,9 +148,7 @@ pub fn offload_files(
 
                         if verify {
                             results[idx].state = DestinationState::Verifying;
-                            let dest_path = destinations[idx]
-                                .path
-                                .join(&file_entry.relative_path);
+                            let dest_path = destinations[idx].path.join(&file_entry.relative_path);
                             match verify_file(&dest_path, &file_entry.source_blake3) {
                                 Ok(()) => {
                                     results[idx].files_verified += 1;
@@ -155,10 +166,8 @@ pub fn offload_files(
                         results[idx].files_failed += 1;
                         results[idx].state = DestinationState::Failed;
                         if results[idx].final_error.is_none() {
-                            results[idx].final_error = Some(format!(
-                                "{}: copy failed",
-                                file_entry.relative_path
-                            ));
+                            results[idx].final_error =
+                                Some(format!("{}: copy failed", file_entry.relative_path));
                         }
                     }
                 }
@@ -168,10 +177,8 @@ pub fn offload_files(
                     r.files_failed += 1;
                     r.state = DestinationState::Failed;
                     if r.final_error.is_none() {
-                        r.final_error = Some(format!(
-                            "{}: copy failed - {}",
-                            file_entry.relative_path, e
-                        ));
+                        r.final_error =
+                            Some(format!("{}: copy failed - {}", file_entry.relative_path, e));
                     }
                 }
             }
@@ -195,7 +202,11 @@ pub fn offload_files(
             .collect();
 
         progress(OffloadProgress {
-            phase: if verify { "verifying".into() } else { "copying".into() },
+            phase: if verify {
+                "verifying".into()
+            } else {
+                "copying".into()
+            },
             overall_files_completed,
             overall_files_total,
             overall_bytes_completed,
@@ -206,7 +217,10 @@ pub fn offload_files(
     }
 
     for r in &mut results {
-        if r.state != DestinationState::Failed && r.state != DestinationState::Cancelled && r.files_failed == 0 {
+        if r.state != DestinationState::Failed
+            && r.state != DestinationState::Cancelled
+            && r.files_failed == 0
+        {
             r.state = DestinationState::Complete;
         }
     }
@@ -271,7 +285,8 @@ fn copy_file_fanout(
 
         let chunk = ChunkMessage::Data(buf[..n].to_vec());
         for sender in &senders {
-            sender.send(chunk.clone())
+            sender
+                .send(chunk.clone())
                 .map_err(|_| anyhow::anyhow!("Destination writer disconnected"))?;
         }
     }
@@ -461,6 +476,40 @@ mod tests {
     }
 
     #[test]
+    fn scan_source_ignores_hidden_directories_when_enabled() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(temp.path().join(".hidden_dir")).unwrap();
+        std::fs::write(temp.path().join(".hidden_dir").join("clip.mxf"), b"hidden").unwrap();
+        std::fs::write(temp.path().join("visible.mxf"), b"visible").unwrap();
+
+        let mut progress_calls = 0;
+        let scan = scan_source(temp.path(), &OffloadOptions::default(), &mut |_, _| {
+            progress_calls += 1
+        })
+        .unwrap();
+
+        assert_eq!(scan.total_files, 1);
+        assert_eq!(scan.files[0].relative_path, "visible.mxf");
+        assert_eq!(progress_calls, 1);
+    }
+
+    #[test]
+    fn scan_source_keeps_hidden_directories_when_disabled() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(temp.path().join(".hidden_dir")).unwrap();
+        std::fs::write(temp.path().join(".hidden_dir").join("clip.mxf"), b"hidden").unwrap();
+
+        let options = OffloadOptions {
+            ignore_hidden_system: false,
+            ..OffloadOptions::default()
+        };
+        let scan = scan_source(temp.path(), &options, &mut |_, _| {}).unwrap();
+
+        assert_eq!(scan.total_files, 1);
+        assert_eq!(scan.files[0].relative_path, ".hidden_dir/clip.mxf");
+    }
+
+    #[test]
     fn is_hidden_dotfile() {
         use std::path::Path;
         assert!(is_hidden_or_system(Path::new(".hidden")));
@@ -472,7 +521,9 @@ mod tests {
     fn is_hidden_system_folders() {
         use std::path::Path;
         assert!(is_hidden_or_system(Path::new("$RECYCLE.BIN/something")));
-        assert!(is_hidden_or_system(Path::new("System Volume Information/something")));
+        assert!(is_hidden_or_system(Path::new(
+            "System Volume Information/something"
+        )));
     }
 
     #[test]
