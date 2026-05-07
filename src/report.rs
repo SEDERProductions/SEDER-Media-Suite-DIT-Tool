@@ -10,17 +10,18 @@ pub fn report_txt(report: &OffloadReport) -> String {
     out.push_str(&format!("Card:      {}\n", report.metadata.card_name));
     out.push_str(&format!("Camera:    {}\n", report.metadata.camera_id));
     out.push_str(&format!("Source:    {}\n", report.source_path));
-    out.push_str(&format!(
-        "Files:     {}\n",
-        report.source_scan.total_files
-    ));
+    out.push_str(&format!("Files:     {}\n", report.source_scan.total_files));
     out.push_str(&format!(
         "Size:      {}\n\n",
         format_bytes(report.source_scan.total_size)
     ));
 
     for (idx, dest) in report.destination_results.iter().enumerate() {
-        out.push_str(&format!("Destination {}: {}\n", idx + 1, dest.config.path.display()));
+        out.push_str(&format!(
+            "Destination {}: {}\n",
+            idx + 1,
+            dest.config.path.display()
+        ));
         let status = match dest.state {
             DestinationState::Complete => "PASS",
             DestinationState::Failed => "FAIL",
@@ -160,20 +161,18 @@ mod tests {
                 total_size: 3 * 1024 * 1024,
                 total_files: 2,
             },
-            destination_results: vec![
-                DestinationResult {
-                    config: DestinationConfig {
-                        path: PathBuf::from("/Volumes/BACKUP01"),
-                        label: Some("Backup A".into()),
-                    },
-                    state: DestinationState::Complete,
-                    files_copied: 2,
-                    files_verified: 2,
-                    files_failed: 0,
-                    bytes_copied: 3 * 1024 * 1024,
-                    final_error: None,
+            destination_results: vec![DestinationResult {
+                config: DestinationConfig {
+                    path: PathBuf::from("/Volumes/BACKUP01"),
+                    label: Some("Backup A".into()),
                 },
-            ],
+                state: DestinationState::Complete,
+                files_copied: 2,
+                files_verified: 2,
+                files_failed: 0,
+                bytes_copied: 3 * 1024 * 1024,
+                final_error: None,
+            }],
             timestamp: "2026-05-04 12:00:00".into(),
             warnings: vec![],
         }
