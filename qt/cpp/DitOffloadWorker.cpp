@@ -79,7 +79,7 @@ void DitOffloadWorker::run()
     req.ignore_patterns = ignorePatterns.constData();
     req.ignore_hidden_system = m_request.ignoreHiddenSystem ? 1 : 0;
     req.verify_after_copy = m_request.verifyAfterCopy ? 1 : 0;
-    req.cancel_token = reinterpret_cast<volatile uint8_t *>(&m_cancelToken);
+    req.cancel_token = reinterpret_cast<uint8_t *>(&m_cancelToken);
 
     char *errorOut = nullptr;
     OffloadReportHandle *handle = seder_offload_start(&req, progressCallback, this, &errorOut);
@@ -121,7 +121,7 @@ void DitOffloadWorker::run()
     for (size_t i = 0; i < destCount; ++i) {
         uint32_t state = 0;
         seder_report_dest_state(handle, i, &state, nullptr, nullptr, nullptr, nullptr);
-        if (state != 4 && state != 6) {
+        if (state != 4) {
             report.allPass = false;
             break;
         }

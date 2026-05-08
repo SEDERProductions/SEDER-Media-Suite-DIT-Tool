@@ -21,11 +21,24 @@ pub fn scan_source(
 ) -> anyhow::Result<SourceScan> {
     use walkdir::WalkDir;
 
+    let walker = WalkDir::new(source)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| {
+            if !options.ignore_hidden_system {
+                return true;
+            }
+            if entry.depth() == 0 {
+                return true;
+            }
+            !is_hidden_or_system(entry.path())
+        });
+
     let mut files = Vec::new();
     let mut total_size = 0u64;
     let mut total_files = 0u64;
 
-    for entry in WalkDir::new(source).follow_links(false) {
+    for entry in walker {
         let entry = entry?;
         if !entry.file_type().is_file() {
             continue;
@@ -460,6 +473,40 @@ mod tests {
     fn should_ignore_empty_patterns() {
         let patterns: Vec<String> = vec![];
         assert!(!should_ignore("anything.txt", &patterns));
+    }
+
+    #[test]
+    fn scan_source_ignores_hidden_directories_when_enabled() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(temp.path().join(".hidden_dir")).unwrap();
+        std::fs::write(temp.path().join(".hidden_dir").join("clip.mxf"), b"hidden").unwrap();
+        std::fs::write(temp.path().join("visible.mxf"), b"visible").unwrap();
+
+        let mut progress_calls = 0;
+        let scan = scan_source(temp.path(), &OffloadOptions::default(), &mut |_, _| {
+            progress_calls += 1
+        })
+        .unwrap();
+
+        assert_eq!(scan.total_files, 1);
+        assert_eq!(scan.files[0].relative_path, "visible.mxf");
+        assert_eq!(progress_calls, 1);
+    }
+
+    #[test]
+    fn scan_source_keeps_hidden_directories_when_disabled() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(temp.path().join(".hidden_dir")).unwrap();
+        std::fs::write(temp.path().join(".hidden_dir").join("clip.mxf"), b"hidden").unwrap();
+
+        let options = OffloadOptions {
+            ignore_hidden_system: false,
+            ..OffloadOptions::default()
+        };
+        let scan = scan_source(temp.path(), &options, &mut |_, _| {}).unwrap();
+
+        assert_eq!(scan.total_files, 1);
+        assert_eq!(scan.files[0].relative_path, ".hidden_dir/clip.mxf");
     }
 
     #[test]

@@ -55,6 +55,7 @@ void DestinationListModel::addDestination(const QString &path, const QString &la
     auto *item = new DestinationItem(this);
     item->setPath(path);
     item->setLabel(label.isEmpty() ? QStringLiteral("Destination %1").arg(m_items.size() + 1) : label);
+    wireItemSignals(item);
     m_items.append(item);
     endInsertRows();
     emit countChanged();
@@ -78,4 +79,20 @@ void DestinationListModel::clear()
     m_items.clear();
     endResetModel();
     emit countChanged();
+}
+
+void DestinationListModel::wireItemSignals(DestinationItem *item)
+{
+    auto emitRoleChanged = [this, item](int role) {
+        const int row = m_items.indexOf(item);
+        if (row < 0) return;
+        const QModelIndex changedIndex = index(row, 0);
+        emit dataChanged(changedIndex, changedIndex, QList<int>{role});
+    };
+
+    connect(item, &DestinationItem::labelChanged, this, [emitRoleChanged] { emitRoleChanged(LabelRole); });
+    connect(item, &DestinationItem::pathChanged, this, [emitRoleChanged] { emitRoleChanged(PathRole); });
+    connect(item, &DestinationItem::stateChanged, this, [emitRoleChanged] { emitRoleChanged(StateRole); });
+    connect(item, &DestinationItem::progressChanged, this, [emitRoleChanged] { emitRoleChanged(ProgressRole); });
+    connect(item, &DestinationItem::errorChanged, this, [emitRoleChanged] { emitRoleChanged(ErrorRole); });
 }
