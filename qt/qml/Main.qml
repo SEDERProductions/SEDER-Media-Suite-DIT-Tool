@@ -52,6 +52,32 @@ ApplicationWindow {
         return m ? m[1] : ""
     }
 
+    function destinationStateLabel(state) {
+        switch(state) {
+        case 0: return "○ Pending"
+        case 1: return "… Scanning"
+        case 2: return "… Copying"
+        case 3: return "… Verifying"
+        case 4: return "✓ Complete"
+        case 5: return "✕ Failed"
+        case 6: return "✕ Cancelled"
+        default: return "○ Pending"
+        }
+    }
+
+    function destinationStateA11yLabel(state) {
+        switch(state) {
+        case 0: return "Pending"
+        case 1: return "Scanning"
+        case 2: return "Copying"
+        case 3: return "Verifying"
+        case 4: return "Complete"
+        case 5: return "Failed"
+        case 6: return "Cancelled"
+        default: return "Pending"
+        }
+    }
+
     component MetaLabel: Text {
         color: faint
         font.family: root.mono
@@ -379,22 +405,14 @@ ApplicationWindow {
                                     ColumnLayout {
                                         Layout.preferredWidth: 70
                                         Text {
-                                            text: {
-                                                switch(model.state) {
-                                                case 0: return "Pending"
-                                                case 1: return "Scanning"
-                                                case 2: return "Copying"
-                                                case 3: return "Verifying"
-                                                case 4: return "Complete"
-                                                case 5: return "Failed"
-                                                case 6: return "Cancelled"
-                                                }
-                                            }
+                                            text: root.destinationStateLabel(model.state)
                                             color: model.state === 4 ? green : (model.state === 5 ? bad : (model.state === 6 ? faint : warn))
                                             font.family: root.mono
                                             font.pixelSize: 10
+                                            font.bold: model.state === 4 || model.state === 5
                                             horizontalAlignment: Text.AlignRight
                                             Layout.fillWidth: true
+                                            Accessible.name: "Destination status: " + root.destinationStateA11yLabel(model.state)
                                         }
                                         StyledProgressBar {
                                             Layout.fillWidth: true
@@ -630,16 +648,26 @@ ApplicationWindow {
                         Column {
                             anchors.fill: parent
                             anchors.margins: 9
-                            spacing: 5
+                            spacing: 2
                             MetaLabel { text: "Status" }
                             Text {
-                                text: appController.pass ? "PASS" : "FAIL"
+                                text: appController.pass ? "✓ PASS" : "✕ FAIL"
                                 color: appController.pass ? green : bad
                                 font.family: root.mono
                                 font.pixelSize: 18
                                 font.bold: true
                             }
+                            Text {
+                                text: appController.pass ? "All destination verifications passed" : "One or more destination verifications failed"
+                                color: muted
+                                font.family: root.sans
+                                font.pixelSize: 10
+                                font.bold: true
+                                elide: Text.ElideRight
+                                width: parent.width
+                            }
                         }
+                        Accessible.name: appController.pass ? "Pass status. All destination verifications passed." : "Fail status. One or more destination verifications failed."
                     }
                 }
             }
