@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${VERSION:-}"
-ARTIFACT_HELPER="$ROOT_DIR/scripts/release-artifacts.sh"
+VERSION="${VERSION:-$(python3 "$ROOT_DIR/scripts/package_common.py" version --root "$ROOT_DIR")}"
+VERSION="${VERSION#v}"
 
 ARCH="${ARCH:-$(uname -m)}"
 case "$ARCH" in
@@ -55,8 +55,10 @@ codesign --force --deep --options runtime \
   "$APP_BUNDLE"
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
-ARTIFACT="$ARTIFACT_DIR/$($ARTIFACT_HELPER --filename ${PLATFORM})"
+ARTIFACT_NAME="$(python3 "$ROOT_DIR/scripts/package_common.py" artifact-name --version "$VERSION" --platform "$PLATFORM")"
+ARTIFACT="$ARTIFACT_DIR/$ARTIFACT_NAME"
 rm -f "$ARTIFACT"
 ditto -c -k --keepParent "$APP_BUNDLE" "$ARTIFACT"
 
+python3 "$ROOT_DIR/scripts/package_common.py" checksums --artifact-dir "$ARTIFACT_DIR" >/dev/null
 echo "Packaged $ARTIFACT"

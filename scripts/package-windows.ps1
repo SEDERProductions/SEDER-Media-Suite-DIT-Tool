@@ -4,7 +4,7 @@ $RootDir = Resolve-Path (Join-Path $PSScriptRoot "..")
 $PackageName = (Select-String -Path (Join-Path $RootDir "Cargo.toml") -Pattern '^name = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
 $Version = $env:VERSION
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = (Select-String -Path (Join-Path $RootDir "Cargo.toml") -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+    $Version = python (Join-Path $RootDir "scripts/package_common.py") version --root $RootDir
 }
 $Version = $Version.TrimStart("v")
 
@@ -64,8 +64,10 @@ Get-ChildItem -Path $InstallDir -Recurse -Filter *.exe | ForEach-Object {
     if ($LASTEXITCODE -ne 0) { throw "signtool failed for $($_.FullName)" }
 }
 
-$Artifact = Join-Path $ArtifactDir "$PackageName-v$Version-windows-x64.zip"
+$ArtifactName = python (Join-Path $RootDir "scripts/package_common.py") artifact-name --version $Version --platform windows-x64
+$Artifact = Join-Path $ArtifactDir $ArtifactName
 Remove-Item -Force $Artifact -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $InstallDir "*") -DestinationPath $Artifact
 
+python (Join-Path $RootDir "scripts/package_common.py") checksums --artifact-dir $ArtifactDir | Out-Null
 Write-Host "Packaged $Artifact"
