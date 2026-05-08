@@ -149,7 +149,10 @@ pub unsafe extern "C" fn seder_offload_start(
 
             for dest in &progress.destinations {
                 let file_c = CString::new(dest.current_file.clone()).unwrap_or_default();
-                let err_c = dest.error.as_ref().map(|e| CString::new(e.clone()).unwrap_or_default());
+                let err_c = dest
+                    .error
+                    .as_ref()
+                    .map(|e| CString::new(e.clone()).unwrap_or_default());
                 progress_strings.push((file_c, err_c));
             }
 
@@ -162,7 +165,10 @@ pub unsafe extern "C" fn seder_offload_start(
                     bytes_completed: dest.bytes_completed,
                     bytes_total: dest.bytes_total,
                     current_file: file_c.as_ptr(),
-                    error: err_c.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null()),
+                    error: err_c
+                        .as_ref()
+                        .map(|c| c.as_ptr())
+                        .unwrap_or(std::ptr::null()),
                 });
             }
 
@@ -325,7 +331,9 @@ pub unsafe extern "C" fn seder_string_free(ptr: *mut c_char) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn seder_report_export_txt(handle: *mut OffloadReportHandle) -> *const c_char {
+pub unsafe extern "C" fn seder_report_export_txt(
+    handle: *mut OffloadReportHandle,
+) -> *const c_char {
     if handle.is_null() {
         return std::ptr::null();
     }
@@ -333,7 +341,9 @@ pub unsafe extern "C" fn seder_report_export_txt(handle: *mut OffloadReportHandl
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn seder_report_export_csv(handle: *mut OffloadReportHandle) -> *const c_char {
+pub unsafe extern "C" fn seder_report_export_csv(
+    handle: *mut OffloadReportHandle,
+) -> *const c_char {
     if handle.is_null() {
         return std::ptr::null();
     }
@@ -341,7 +351,9 @@ pub unsafe extern "C" fn seder_report_export_csv(handle: *mut OffloadReportHandl
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn seder_report_export_mhl(handle: *mut OffloadReportHandle) -> *const c_char {
+pub unsafe extern "C" fn seder_report_export_mhl(
+    handle: *mut OffloadReportHandle,
+) -> *const c_char {
     if handle.is_null() {
         return std::ptr::null();
     }
@@ -419,9 +431,7 @@ unsafe fn cstr_to_string(ptr: *const c_char) -> String {
     if ptr.is_null() {
         return String::new();
     }
-    CStr::from_ptr(ptr)
-        .to_string_lossy()
-        .into_owned()
+    CStr::from_ptr(ptr).to_string_lossy().into_owned()
 }
 
 unsafe fn nullable_cstr_to_option(ptr: *const c_char) -> Option<String> {
@@ -492,6 +502,9 @@ mod tests {
         // This test just validates the algorithm doesn't crash for a near-future date
         let ts = chrono_nowish();
         assert!(!ts.contains("1970"));
-        assert!(!ts.contains("01-01 00:00:00"), "should not be default epoch");
+        assert!(
+            !ts.contains("01-01 00:00:00"),
+            "should not be default epoch"
+        );
     }
 }

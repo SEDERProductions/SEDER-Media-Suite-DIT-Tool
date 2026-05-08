@@ -5,7 +5,6 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-
 const CHUNK_SIZE: usize = 1024 * 1024; // 1 MiB
 const CHANNEL_BOUND: usize = 16;
 
@@ -39,7 +38,8 @@ pub fn scan_source(
         if options.ignore_hidden_system && is_hidden_or_system(path) {
             continue;
         }
-        if !options.ignore_patterns.is_empty() && should_ignore(&rel_str, &options.ignore_patterns) {
+        if !options.ignore_patterns.is_empty() && should_ignore(&rel_str, &options.ignore_patterns)
+        {
             continue;
         }
 
@@ -135,9 +135,7 @@ pub fn offload_files(
 
                         if verify {
                             results[idx].state = DestinationState::Verifying;
-                            let dest_path = destinations[idx]
-                                .path
-                                .join(&file_entry.relative_path);
+                            let dest_path = destinations[idx].path.join(&file_entry.relative_path);
                             match verify_file(&dest_path, &file_entry.source_blake3) {
                                 Ok(()) => {
                                     results[idx].files_verified += 1;
@@ -155,10 +153,8 @@ pub fn offload_files(
                         results[idx].files_failed += 1;
                         results[idx].state = DestinationState::Failed;
                         if results[idx].final_error.is_none() {
-                            results[idx].final_error = Some(format!(
-                                "{}: copy failed",
-                                file_entry.relative_path
-                            ));
+                            results[idx].final_error =
+                                Some(format!("{}: copy failed", file_entry.relative_path));
                         }
                     }
                 }
@@ -168,10 +164,8 @@ pub fn offload_files(
                     r.files_failed += 1;
                     r.state = DestinationState::Failed;
                     if r.final_error.is_none() {
-                        r.final_error = Some(format!(
-                            "{}: copy failed - {}",
-                            file_entry.relative_path, e
-                        ));
+                        r.final_error =
+                            Some(format!("{}: copy failed - {}", file_entry.relative_path, e));
                     }
                 }
             }
@@ -195,7 +189,11 @@ pub fn offload_files(
             .collect();
 
         progress(OffloadProgress {
-            phase: if verify { "verifying".into() } else { "copying".into() },
+            phase: if verify {
+                "verifying".into()
+            } else {
+                "copying".into()
+            },
             overall_files_completed,
             overall_files_total,
             overall_bytes_completed,
@@ -206,7 +204,10 @@ pub fn offload_files(
     }
 
     for r in &mut results {
-        if r.state != DestinationState::Failed && r.state != DestinationState::Cancelled && r.files_failed == 0 {
+        if r.state != DestinationState::Failed
+            && r.state != DestinationState::Cancelled
+            && r.files_failed == 0
+        {
             r.state = DestinationState::Complete;
         }
     }
@@ -271,7 +272,8 @@ fn copy_file_fanout(
 
         let chunk = ChunkMessage::Data(buf[..n].to_vec());
         for sender in &senders {
-            sender.send(chunk.clone())
+            sender
+                .send(chunk.clone())
                 .map_err(|_| anyhow::anyhow!("Destination writer disconnected"))?;
         }
     }
@@ -472,7 +474,9 @@ mod tests {
     fn is_hidden_system_folders() {
         use std::path::Path;
         assert!(is_hidden_or_system(Path::new("$RECYCLE.BIN/something")));
-        assert!(is_hidden_or_system(Path::new("System Volume Information/something")));
+        assert!(is_hidden_or_system(Path::new(
+            "System Volume Information/something"
+        )));
     }
 
     #[test]
