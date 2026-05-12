@@ -13,7 +13,11 @@ ThemeController::ThemeController(QObject *parent)
     updateDark();
 
     if (auto *app = qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
         connect(app->styleHints(), &QStyleHints::colorSchemeChanged, this, &ThemeController::updateDark);
+#else
+        Q_UNUSED(app);
+#endif
     }
 }
 

@@ -533,9 +533,9 @@ ApplicationWindow {
                     spacing: 0
                     Rectangle {
                         visible: !appController.busy && !appController.canExport
-                        anchors.centerIn: parent
-                        width: 480
-                        height: 220
+                        Layout.alignment: Qt.AlignCenter
+                        Layout.preferredWidth: 480
+                        Layout.preferredHeight: 220
                         color: "transparent"
                         Column {
                             anchors.centerIn: parent

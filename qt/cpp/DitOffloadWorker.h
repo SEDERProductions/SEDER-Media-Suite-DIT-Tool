@@ -69,6 +69,9 @@ public:
 public slots:
     void run();
 
+private:
+    static void progressTrampoline(const struct SederOffloadProgress *progress, void *userData);
+
 signals:
     void progress(const OffloadProgressData &progress);
     void finished(const FinalReportData &report);

@@ -19,6 +19,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("appController"), &appController);
     engine.rootContext()->setContextProperty(QStringLiteral("themeController"), &themeController);
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     QObject::connect(
         &engine,
         &QQmlApplicationEngine::objectCreationFailed,
@@ -26,6 +27,17 @@ int main(int argc, char *argv[])
         [] { QCoreApplication::exit(-1); },
         Qt::QueuedConnection);
     engine.loadFromModule(QStringLiteral("SederDit"), QStringLiteral("Main"));
+#else
+    QObject::connect(
+        &engine,
+        &QQmlApplicationEngine::objectCreated,
+        &app,
+        [](QObject *obj, const QUrl &) {
+            if (!obj) QCoreApplication::exit(-1);
+        },
+        Qt::QueuedConnection);
+    engine.load(QUrl(QStringLiteral("qrc:/SederDit/qml/Main.qml")));
+#endif
 
     return app.exec();
 }
