@@ -81,6 +81,7 @@ pub fn report_csv(report: &OffloadReport) -> String {
             "\"{}\",\"{}\",\"{}\",{},{},{},{},{},\"{}\"\n",
             csv_field(dest.config.label.as_deref().unwrap_or("")),
             csv_field(&dest.config.path.display().to_string()),
+            verification_mode,
             status,
             dest.files_copied,
             dest.files_verified,
