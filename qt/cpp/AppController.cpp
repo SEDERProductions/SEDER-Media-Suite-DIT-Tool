@@ -155,6 +155,8 @@ void AppController::startOffload()
         item->setProgress(0.0);
         item->setError(QString());
     }
+    m_prevDestFilesCompleted.clear();
+    m_prevDestFilesCompleted.resize(m_destinationModel->count(), 0);
 
     auto *thread = new QThread(this);
     auto *worker = new DitOffloadWorker(request);
@@ -189,6 +191,8 @@ void AppController::startOffload()
         } else if (update.overallBytesTotal > 0) {
             setOverallProgress(static_cast<double>(update.overallBytesCompleted) / static_cast<double>(update.overallBytesTotal));
         }
+
+        // Log per-destination file completions during copy/verify phases
         for (int i = 0; i < update.destinations.size() && i < m_destinationModel->count(); ++i) {
             const DestinationProgressData &dpd = update.destinations.at(i);
             auto *item = m_destinationModel->items().at(i);
@@ -199,6 +203,26 @@ void AppController::startOffload()
             if (!dpd.error.isEmpty()) {
                 item->setError(dpd.error);
             }
+
+            // Log completed files for this destination
+            if (i < m_prevDestFilesCompleted.size()) {
+                quint64 prevCount = m_prevDestFilesCompleted[i];
+                quint64 newCount = dpd.filesCompleted;
+                if (newCount > prevCount) {
+                    const QString destLabel = item->label().isEmpty() ? QString::number(i + 1) : item->label();
+                    // Log each newly completed file with full path
+                    for (quint64 j = prevCount; j < newCount; ++j) {
+                        const QString fileInfo = dpd.currentFile.isEmpty()
+                            ? QStringLiteral("%1").arg(j)
+                            : dpd.currentFile;
+                        appendLog(QStringLiteral("✓ %1 → Destination %2 (%3/%4)")
+                            .arg(fileInfo, destLabel)
+                            .arg(newCount)
+                            .arg(dpd.filesTotal));
+                    }
+                    m_prevDestFilesCompleted[i] = newCount;
+                }
+            }
         }
     });
     connect(worker, &DitOffloadWorker::finished, this, [this, request](const FinalReportData &report) {
@@ -208,6 +232,12 @@ void AppController::startOffload()
         if (report.allPass) {
             setStatusText(QStringLiteral("Offload complete."));
             appendLog(QStringLiteral("Offload complete."));
+            // Log summary per destination
+            for (int i = 0; i < m_destinationModel->count(); ++i) {
+                auto *item = m_destinationModel->items().at(i);
+                const QString destLabel = item->label().isEmpty() ? QString::number(i + 1) : item->label();
+                appendLog(QStringLiteral("✓ All %1 files copied to Destination %2").arg(report.totalFiles).arg(destLabel));
+            }
         } else {
             setStatusText(QStringLiteral("Offload completed with errors."));
             appendLog(QStringLiteral("Offload completed with errors."));
