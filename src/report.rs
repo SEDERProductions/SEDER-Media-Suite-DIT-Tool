@@ -75,7 +75,10 @@ pub fn report_csv(report: &OffloadReport) -> String {
     out
 }
 
-pub fn report_mhl(report: &OffloadReport, destination_index: usize) -> String {
+pub fn report_mhl(report: &OffloadReport, destination_index: usize) -> Result<String, String> {
+    if !report.checksum_verified {
+        return Err("MHL export requires checksum verification (Verify after copy).".into());
+    }
     let mut out = String::new();
     out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     out.push_str("<hashlist version=\"2.0\" xmlns=\"urn:ASC:MHL:v2.0\">\n");
@@ -104,7 +107,7 @@ pub fn report_mhl(report: &OffloadReport, destination_index: usize) -> String {
     }
 
     out.push_str("</hashlist>\n");
-    out
+    Ok(out)
 }
 
 fn csv_field(value: &str) -> String {
@@ -179,6 +182,7 @@ mod tests {
             }],
             timestamp: "2026-05-04 12:00:00".into(),
             warnings: vec![],
+            checksum_verified: true,
         }
     }
 
@@ -229,7 +233,7 @@ mod tests {
     #[test]
     fn report_mhl_contains_hash() {
         let report = make_test_report();
-        let mhl = report_mhl(&report, 0);
+        let mhl = report_mhl(&report, 0).expect("mhl should be generated");
         assert!(mhl.contains("abc123hash"));
         assert!(mhl.contains("urn:ASC:MHL:v2.0"));
     }

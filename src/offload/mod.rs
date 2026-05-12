@@ -111,4 +111,5 @@ pub struct OffloadReport {
     pub destination_results: Vec<DestinationResult>,
     pub timestamp: String,
     pub warnings: Vec<String>,
+    pub checksum_verified: bool,
 }

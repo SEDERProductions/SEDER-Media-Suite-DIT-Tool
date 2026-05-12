@@ -459,7 +459,15 @@ ApplicationWindow {
                         enabled: !appController.busy
                         onActivated: appController.verifyAfterCopy = (index === 0)
                     }
-                    StyledCheckBox {
+                    Text {
+                        Layout.fillWidth: true
+                        text: "MHL export requires Verify after copy."
+                        color: muted
+                        font.family: root.sans
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
+                    CheckBox {
                         text: "Ignore hidden/system files"
                         checked: appController.ignoreHiddenSystem
                         enabled: !appController.busy
@@ -699,9 +707,10 @@ ApplicationWindow {
                     QuietButton {
                         text: "MHL"
                         enabled: appController.canExportMhl && !appController.busy
+                        visible: appController.canExportMhl || appController.canExport
                         onClicked: appController.exportMhl()
                         ToolTip.visible: hovered && !enabled
-                        ToolTip.text: "MHL export requires checksum-backed verification."
+                        ToolTip.text: "Requires Verify after copy"
                     }
                 }
             }

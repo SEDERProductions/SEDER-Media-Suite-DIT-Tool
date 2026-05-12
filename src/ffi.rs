@@ -87,7 +87,7 @@ pub unsafe extern "C" fn seder_offload_start(
     let result = catch_unwind(|| -> anyhow::Result<*mut OffloadReportHandle> {
         let req = unsafe {
             if request.is_null() {
-                return Err(anyhow!("Null offload request"));
+                return Err(anyhow!("Null offload request pointer"));
             }
             &*request
         };
@@ -273,11 +273,12 @@ pub unsafe extern "C" fn seder_offload_start(
             destination_results,
             timestamp,
             warnings,
+            checksum_verified: offload_request.options.verify_after_copy,
         };
 
         let txt = report::report_txt(&report);
         let csv = report::report_csv(&report);
-        let mhl = report::report_mhl(&report, 0);
+        let mhl = report::report_mhl(&report, 0).unwrap_or_default();
 
         let handle = Box::new(OffloadReportHandle {
             report,

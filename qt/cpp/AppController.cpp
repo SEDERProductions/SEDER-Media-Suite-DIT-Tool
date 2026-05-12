@@ -51,7 +51,7 @@ QString AppController::statusText() const { return m_statusText; }
 QString AppController::currentFile() const { return m_currentFile; }
 QStringList AppController::logLines() const { return m_logLines; }
 bool AppController::canExport() const { return m_canExport; }
-bool AppController::canExportMhl() const { return m_canExportMhl; }
+bool AppController::canExportMhl() const { return m_canExport && m_canExportMhl && !m_mhlExport.isEmpty(); }
 quint64 AppController::totalFiles() const { return m_totalFiles; }
 quint64 AppController::totalSize() const { return m_totalSize; }
 bool AppController::pass() const { return m_pass; }
@@ -118,6 +118,7 @@ void AppController::startOffload()
     setPass(false);
     m_canExport = false;
     m_canExportMhl = false;
+    m_mhlExport.clear();
     emit exportStateChanged();
     emit canExportMhlChanged();
     emit summaryChanged();
@@ -185,7 +186,8 @@ void AppController::startOffload()
         m_totalSize = report.totalSize;
         m_txtExport = report.txtExport;
         m_csvExport = report.csvExport;
-        m_mhlExport = report.mhlExport;
+        m_canExportMhl = report.checksumVerified;
+        m_mhlExport = report.checksumVerified ? report.mhlExport : QString();
         m_canExport = true;
         m_canExportMhl = request.verifyAfterCopy && !m_mhlExport.trimmed().isEmpty();
         emit exportStateChanged();
@@ -235,6 +237,11 @@ void AppController::exportCsv()
 
 void AppController::exportMhl()
 {
+    if (!canExportMhl()) {
+        setStatusText(QStringLiteral("MHL export requires Verify after copy."));
+        appendLog(QStringLiteral("MHL export skipped: Verify after copy was not enabled."));
+        return;
+    }
     writeExport(tr("Export MHL Report"), QStringLiteral("seder-dit-report.mhl"), m_mhlExport);
 }
 
