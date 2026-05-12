@@ -198,6 +198,7 @@ fn report_txt_contains_all_destinations() {
         source_scan: scan,
         destination_results: results,
         timestamp: "2026-01-01 12:00:00".into(),
+        verification_performed: true,
         warnings: vec!["test warning".into()],
         checksum_verified: true,
     };
