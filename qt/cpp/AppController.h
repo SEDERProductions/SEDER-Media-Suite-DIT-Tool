@@ -72,6 +72,7 @@ public:
 
     Q_INVOKABLE void chooseSourceFolder();
     Q_INVOKABLE void addDestinationFolder();
+    Q_INVOKABLE void copyDestinationPath(int sourceIndex);
     Q_INVOKABLE void syncDestinationPaths();
     Q_INVOKABLE void removeDestination(int index);
     Q_INVOKABLE void startOffload();
@@ -103,12 +104,13 @@ signals:
     void canExportMhlChanged();
     void summaryChanged();
 
-private:
+public:
     enum class LogSeverity {
         Info,
         Warn,
         Error
     };
+private:
     void appendLog(const QString &line, LogSeverity severity = LogSeverity::Info);
     void setBusy(bool value);
     void setOverallProgress(double value);

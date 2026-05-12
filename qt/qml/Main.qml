@@ -197,6 +197,15 @@ ApplicationWindow {
                                         }
                                     }
                                     QuietButton {
+                                        text: "⤴"
+                                        Layout.preferredWidth: 28
+                                        enabled: !appController.busy
+                                        onClicked: appController.copyDestinationPath(index)
+                                        Accessible.name: "Copy path to new destination"
+                                        ToolTip.visible: hovered && enabled
+                                        ToolTip.text: "Copy path to new destination"
+                                    }
+                                    QuietButton {
                                         text: "×"
                                         Layout.preferredWidth: 28
                                         variant: "danger"

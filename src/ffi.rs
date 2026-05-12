@@ -47,6 +47,7 @@ pub struct SederDestinationProgress {
     pub bytes_completed: u64,
     pub bytes_total: u64,
     pub current_file: *const c_char,
+    pub last_status: u32,
     pub error: *const c_char,
 }
 
@@ -212,6 +213,7 @@ pub unsafe extern "C" fn seder_offload_start(
                     bytes_completed: dest.bytes_completed,
                     bytes_total: dest.bytes_total,
                     current_file: dest_file_bufs[idx].as_ptr(),
+                    last_status: dest.last_file_status as u32,
                     error: dest_err_bufs[idx]
                         .as_ref()
                         .map(|b| b.as_ptr())
@@ -251,6 +253,7 @@ pub unsafe extern "C" fn seder_offload_start(
                     bytes_completed: 0,
                     bytes_total: 0,
                     current_file: String::new(),
+                    last_file_status: FileTransferStatus::None,
                     error: None,
                 })
                 .collect()

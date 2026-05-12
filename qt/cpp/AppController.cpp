@@ -5,6 +5,7 @@
 #include <QGuiApplication>
 #include <QClipboard>
 #include <QDateTime>
+#include <QDir>
 #include <QSaveFile>
 #include <QThread>
 #include <QRegularExpression>
@@ -77,6 +78,66 @@ void AppController::addDestinationFolder()
     if (!path.isEmpty()) {
         m_destinationModel->addDestination(path);
     }
+}
+
+void AppController::copyDestinationPath(int sourceIndex)
+{
+    if (sourceIndex < 0 || sourceIndex >= m_destinationModel->count()) return;
+    auto *sourceItem = m_destinationModel->items().at(sourceIndex);
+    const QString sourcePath = QDir::toNativeSeparators(sourceItem->path());
+    if (sourcePath.isEmpty()) return;
+
+    // Extract the subfolder path beyond the root (drive or UNC share)
+    // "D:\Project\Rushes\Date\Card1" → subfolder "Project\Rushes\Date\Card1", root "D:\"
+    // "\\server\share\Project\Rushes" → subfolder "Project\Rushes", root "\\server\share\"
+    QString rootPath;
+    QString subfolder;
+    if (sourcePath.startsWith(QStringLiteral("\\\\"))) {
+        const int afterShare = sourcePath.indexOf(QDir::separator(), 2);
+        if (afterShare >= 0) {
+            const int afterRoot = sourcePath.indexOf(QDir::separator(), afterShare + 1);
+            if (afterRoot >= 0) {
+                rootPath = sourcePath.left(afterRoot);
+                subfolder = sourcePath.mid(afterRoot + 1);
+            } else {
+                rootPath = sourcePath;
+            }
+        } else {
+            rootPath = sourcePath;
+        }
+    } else {
+        const int afterDrive = sourcePath.indexOf(QDir::separator(), 2);
+        if (afterDrive >= 0) {
+            rootPath = sourcePath.left(afterDrive + 1);
+            subfolder = sourcePath.mid(afterDrive + 1);
+        } else {
+            rootPath = sourcePath;
+        }
+    }
+
+    if (subfolder.isEmpty()) {
+        addDestinationFolder();
+        return;
+    }
+
+    const QString caption = tr("Choose base folder for Destination (subfolder \"%1\" will be appended)")
+        .arg(subfolder);
+
+    const QString basePath = QFileDialog::getExistingDirectory(nullptr, caption, rootPath);
+    if (basePath.isEmpty()) return;
+
+    const QString targetPath = QDir(basePath).filePath(subfolder);
+
+    QDir dir(targetPath);
+    if (!dir.exists()) {
+        if (!dir.mkpath(QStringLiteral("."))) {
+            appendLog(QStringLiteral("Failed to create directory: %1").arg(targetPath), LogSeverity::Error);
+            return;
+        }
+        appendLog(QStringLiteral("Created directory: %1").arg(targetPath));
+    }
+
+    m_destinationModel->addDestination(targetPath);
 }
 
 void AppController::syncDestinationPaths()
@@ -209,16 +270,49 @@ void AppController::startOffload()
                 quint64 prevCount = m_prevDestFilesCompleted[i];
                 quint64 newCount = dpd.filesCompleted;
                 if (newCount > prevCount) {
-                    const QString destLabel = item->label().isEmpty() ? QString::number(i + 1) : item->label();
-                    // Log each newly completed file with full path
+                    const QString destLabel = item->label().isEmpty()
+                        ? QStringLiteral("Destination %1").arg(i + 1)
+                        : item->label();
+                    const QString fileInfo = dpd.currentFile.isEmpty()
+                        ? QStringLiteral("file %1").arg(newCount)
+                        : dpd.currentFile;
+                    const QString progress = QStringLiteral("(%1/%2)")
+                        .arg(newCount).arg(dpd.filesTotal);
+
+                    QString prefix;
+                    AppController::LogSeverity severity = AppController::LogSeverity::Info;
+                    const uint32_t status = dpd.lastStatus;
+                    switch (status) {
+                    case 1: // Copied
+                    case 2: // Verified
+                        prefix = QStringLiteral("✓");
+                        break;
+                    case 3: // Skipped
+                        prefix = QStringLiteral("~");
+                        break;
+                    case 4: // Failed
+                        prefix = QStringLiteral("✗");
+                        severity = AppController::LogSeverity::Error;
+                        break;
+                    default:
+                        prefix = QStringLiteral("•");
+                        break;
+                    }
+
+                    QString statusText;
+                    switch (status) {
+                    case 2: statusText = QStringLiteral("verified"); break;
+                    case 3: statusText = QStringLiteral("skipped"); break;
+                    case 4: statusText = QStringLiteral("failed"); break;
+                    default: statusText = QString(); break;
+                    }
+
+                    const QString msg = statusText.isEmpty()
+                        ? QStringLiteral("%1 %2 → %3 %4").arg(prefix, fileInfo, destLabel, progress)
+                        : QStringLiteral("%1 %2 → %3 (%4) %5").arg(prefix, fileInfo, destLabel, statusText, progress);
+
                     for (quint64 j = prevCount; j < newCount; ++j) {
-                        const QString fileInfo = dpd.currentFile.isEmpty()
-                            ? QStringLiteral("%1").arg(j)
-                            : dpd.currentFile;
-                        appendLog(QStringLiteral("✓ %1 → Destination %2 (%3/%4)")
-                            .arg(fileInfo, destLabel)
-                            .arg(newCount)
-                            .arg(dpd.filesTotal));
+                        appendLog(msg, severity);
                     }
                     m_prevDestFilesCompleted[i] = newCount;
                 }
@@ -230,17 +324,22 @@ void AppController::startOffload()
         setOverallProgress(1.0);
         setPass(report.allPass);
         if (report.allPass) {
+            const QString mode = report.verificationPerformed
+                ? QStringLiteral("and verified")
+                : QStringLiteral("(copy-only, unverified)");
             setStatusText(QStringLiteral("Offload complete."));
-            appendLog(QStringLiteral("Offload complete."));
-            // Log summary per destination
+            appendLog(QStringLiteral("Offload complete %1.").arg(mode));
             for (int i = 0; i < m_destinationModel->count(); ++i) {
                 auto *item = m_destinationModel->items().at(i);
-                const QString destLabel = item->label().isEmpty() ? QString::number(i + 1) : item->label();
-                appendLog(QStringLiteral("✓ All %1 files copied to Destination %2").arg(report.totalFiles).arg(destLabel));
+                const QString destLabel = item->label().isEmpty()
+                    ? QStringLiteral("Destination %1").arg(i + 1)
+                    : item->label();
+                appendLog(QStringLiteral("✓ All %1 files transferred to %2 %3")
+                    .arg(report.totalFiles).arg(destLabel, mode));
             }
         } else {
             setStatusText(QStringLiteral("Offload completed with errors."));
-            appendLog(QStringLiteral("Offload completed with errors."));
+            appendLog(QStringLiteral("Offload completed with errors."), LogSeverity::Error);
         }
         m_totalFiles = report.totalFiles;
         m_totalSize = report.totalSize;

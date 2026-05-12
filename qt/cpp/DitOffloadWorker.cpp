@@ -45,6 +45,7 @@ void DitOffloadWorker::progressTrampoline(const SederOffloadProgress *progress, 
         dpd.bytesCompleted = dp.bytes_completed;
         dpd.bytesTotal = dp.bytes_total;
         dpd.currentFile = QString::fromUtf8(dp.current_file);
+        dpd.lastStatus = dp.last_status;
         dpd.error = QString::fromUtf8(dp.error);
         data.destinations.append(dpd);
     }

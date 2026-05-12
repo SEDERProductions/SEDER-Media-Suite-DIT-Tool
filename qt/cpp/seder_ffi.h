@@ -36,6 +36,7 @@ typedef struct SederDestinationProgress {
     uint64_t bytes_completed;
     uint64_t bytes_total;
     const char *current_file;
+    uint32_t last_status;
     const char *error;
 } SederDestinationProgress;
 

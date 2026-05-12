@@ -32,6 +32,7 @@ struct DestinationProgressData {
     uint64_t bytesCompleted = 0;
     uint64_t bytesTotal = 0;
     QString currentFile;
+    uint32_t lastStatus = 0;
     QString error;
 };
 

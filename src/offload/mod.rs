@@ -87,6 +87,15 @@ pub struct DestinationResult {
     pub final_error: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileTransferStatus {
+    None = 0,
+    Copied = 1,
+    Verified = 2,
+    Skipped = 3,
+    Failed = 4,
+}
+
 #[derive(Debug, Clone)]
 pub struct DestinationProgress {
     pub index: usize,
@@ -96,6 +105,7 @@ pub struct DestinationProgress {
     pub bytes_completed: u64,
     pub bytes_total: u64,
     pub current_file: String,
+    pub last_file_status: FileTransferStatus,
     pub error: Option<String>,
 }
 

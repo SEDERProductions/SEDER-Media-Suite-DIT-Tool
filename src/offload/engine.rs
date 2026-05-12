@@ -180,6 +180,9 @@ pub fn offload_files(
 
         warnings.extend(file_warnings);
 
+        let mut dest_file_status: Vec<FileTransferStatus> =
+            vec![FileTransferStatus::None; destinations.len()];
+
         match copy_result {
             Ok(statuses) => {
                 for (idx, status) in statuses.iter().enumerate() {
@@ -195,6 +198,7 @@ pub fn offload_files(
                                 match verify_file(&dest_path, &file_entry.source_blake3, &mut verify_buf) {
                                     Ok(()) => {
                                         results[idx].files_verified += 1;
+                                        dest_file_status[idx] = FileTransferStatus::Verified;
                                     }
                                     Err(e) => {
                                         results[idx].files_failed += 1;
@@ -202,13 +206,17 @@ pub fn offload_files(
                                             "{}: verify failed - {}",
                                             file_entry.relative_path, e
                                         ));
+                                        dest_file_status[idx] = FileTransferStatus::Failed;
                                     }
                                 }
+                            } else {
+                                dest_file_status[idx] = FileTransferStatus::Copied;
                             }
                         }
                         FileCopyStatus::Skipped => {
                             results[idx].files_skipped += 1;
                             results[idx].state = DestinationState::Copying;
+                            dest_file_status[idx] = FileTransferStatus::Skipped;
                         }
                         FileCopyStatus::Failed(err) => {
                             results[idx].files_failed += 1;
@@ -217,18 +225,20 @@ pub fn offload_files(
                                 results[idx].final_error =
                                     Some(format!("{}: {}", file_entry.relative_path, err));
                             }
+                            dest_file_status[idx] = FileTransferStatus::Failed;
                         }
                     }
                 }
             }
             Err(e) => {
-                for r in &mut results {
+                for (idx, r) in results.iter_mut().enumerate() {
                     r.files_failed += 1;
                     r.state = DestinationState::Failed;
                     if r.final_error.is_none() {
                         r.final_error =
                             Some(format!("{}: copy failed - {}", file_entry.relative_path, e));
                     }
+                    dest_file_status[idx] = FileTransferStatus::Failed;
                 }
             }
         }
@@ -246,6 +256,7 @@ pub fn offload_files(
                 bytes_completed: r.bytes_copied,
                 bytes_total: overall_bytes_total,
                 current_file: file_entry.relative_path.clone(),
+                last_file_status: dest_file_status[i],
                 error: r.final_error.clone(),
             })
             .collect();
