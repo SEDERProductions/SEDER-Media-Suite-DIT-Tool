@@ -57,6 +57,8 @@ QString AppController::currentFile() const { return m_currentFile; }
 QStringList AppController::logLines() const { return m_logLines; }
 bool AppController::canExport() const { return m_canExport; }
 bool AppController::canExportMhl() const { return m_canExport && m_canExportMhl && !m_mhlExport.isEmpty(); }
+QString AppController::finalStatus() const { return m_finalStatus; }
+bool AppController::verificationPerformed() const { return m_verificationPerformed; }
 quint64 AppController::totalFiles() const { return m_totalFiles; }
 quint64 AppController::totalSize() const { return m_totalSize; }
 bool AppController::pass() const { return m_pass; }
@@ -141,6 +143,8 @@ void AppController::startOffload()
     m_canExport = false;
     m_canExportMhl = false;
     m_mhlExport.clear();
+    m_finalStatus = QStringLiteral("FAIL");
+    m_verificationPerformed = false;
     emit exportStateChanged();
     emit canExportMhlChanged();
     emit summaryChanged();
@@ -215,6 +219,8 @@ void AppController::startOffload()
         m_canExport = true;
         m_mhlExport = request.verifyAfterCopy ? report.mhlExport : QString();
         m_canExportMhl = request.verifyAfterCopy && !m_mhlExport.trimmed().isEmpty();
+        m_finalStatus = report.finalStatus;
+        m_verificationPerformed = report.verificationPerformed;
         emit exportStateChanged();
         emit canExportMhlChanged();
         emit summaryChanged();

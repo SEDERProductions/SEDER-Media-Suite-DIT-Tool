@@ -10,6 +10,14 @@ pub fn report_txt(report: &OffloadReport) -> String {
     out.push_str(&format!("Card:      {}\n", report.metadata.card_name));
     out.push_str(&format!("Camera:    {}\n", report.metadata.camera_id));
     out.push_str(&format!("Source:    {}\n", report.source_path));
+    out.push_str(&format!(
+        "Verification Mode: {}\n",
+        if report.verification_performed {
+            "Verified"
+        } else {
+            "Copy-only (Unverified)"
+        }
+    ));
     out.push_str(&format!("Files:     {}\n", report.source_scan.total_files));
     out.push_str(&format!(
         "Size:      {}\n\n",
@@ -23,7 +31,8 @@ pub fn report_txt(report: &OffloadReport) -> String {
             dest.config.path.display()
         ));
         let status = match dest.state {
-            DestinationState::Complete => "PASS",
+            DestinationState::Complete if report.verification_performed => "PASS",
+            DestinationState::Complete => "COPIED (UNVERIFIED)",
             DestinationState::Failed => "FAIL",
             DestinationState::Cancelled => "CANCELLED",
             _ => "INCOMPLETE",
@@ -53,17 +62,23 @@ pub fn report_txt(report: &OffloadReport) -> String {
 
 pub fn report_csv(report: &OffloadReport) -> String {
     let mut out = String::new();
-    out.push_str("destination,path,status,copied,verified,skipped,failed,error\n");
+    out.push_str("destination,path,verification_mode,status,copied,verified,skipped,failed,error\n");
     for dest in &report.destination_results {
         let status = match dest.state {
-            DestinationState::Complete => "PASS",
+            DestinationState::Complete if report.verification_performed => "PASS",
+            DestinationState::Complete => "COPIED (UNVERIFIED)",
             DestinationState::Failed => "FAIL",
             DestinationState::Cancelled => "CANCELLED",
             _ => "INCOMPLETE",
         };
+        let verification_mode = if report.verification_performed {
+            "Verified"
+        } else {
+            "Copy-only (Unverified)"
+        };
         let error = dest.final_error.as_deref().unwrap_or("");
         out.push_str(&format!(
-            "{},{},{},{},{},{},{},{}\n",
+            "\"{}\",\"{}\",\"{}\",{},{},{},{},{},\"{}\"\n",
             csv_field(dest.config.label.as_deref().unwrap_or("")),
             csv_field(&dest.config.path.display().to_string()),
             status,
@@ -184,6 +199,7 @@ mod tests {
                 final_error: None,
             }],
             timestamp: "2026-05-04 12:00:00".into(),
+            verification_performed: true,
             warnings: vec![],
             checksum_verified: true,
         }
@@ -216,7 +232,7 @@ mod tests {
     fn report_csv_has_header() {
         let report = make_test_report();
         let csv = report_csv(&report);
-        assert!(csv.starts_with("destination,path,status,copied,verified,skipped,failed,error"));
+        assert!(csv.starts_with("destination,path,verification_mode,status,copied,verified,skipped,failed,error"));
     }
 
     #[test]

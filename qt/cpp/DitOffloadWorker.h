@@ -54,6 +54,8 @@ struct FinalReportData {
     quint64 totalSize = 0;
     bool allPass = false;
     bool checksumVerified = false;
+    bool verificationPerformed = false;
+    QString finalStatus;
 };
 
 class DitOffloadWorker final : public QObject {

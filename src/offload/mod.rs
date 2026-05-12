@@ -118,6 +118,7 @@ pub struct OffloadReport {
     pub source_scan: SourceScan,
     pub destination_results: Vec<DestinationResult>,
     pub timestamp: String,
+    pub verification_performed: bool,
     pub warnings: Vec<String>,
     pub checksum_verified: bool,
 }

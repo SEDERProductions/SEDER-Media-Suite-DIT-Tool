@@ -131,6 +131,8 @@ void DitOffloadWorker::run()
     report.totalFiles = static_cast<quint64>(totalFiles);
     report.totalSize = static_cast<quint64>(totalSize);
 
+    report.verificationPerformed = seder_report_verification_performed(handle) != 0;
+
     report.allPass = true;
     for (size_t i = 0; i < destCount; ++i) {
         uint32_t state = 0;
@@ -139,6 +141,14 @@ void DitOffloadWorker::run()
             report.allPass = false;
             break;
         }
+    }
+
+    if (!report.allPass) {
+        report.finalStatus = QStringLiteral("FAIL");
+    } else if (report.verificationPerformed) {
+        report.finalStatus = QStringLiteral("PASS");
+    } else {
+        report.finalStatus = QStringLiteral("COPIED (UNVERIFIED)");
     }
 
     seder_report_free(handle);

@@ -448,8 +448,14 @@ ApplicationWindow {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 58
-                        color: appController.pass ? (dark ? "#1a2a1f" : "#e0f0e6") : panelAlt
-                        border.color: appController.pass ? green : line
+                        color: appController.finalStatus === "PASS"
+                               ? (dark ? "#1a2a1f" : "#e0f0e6")
+                               : (appController.finalStatus === "COPIED (UNVERIFIED)"
+                                  ? (dark ? "#2c271b" : "#f4ecd8")
+                                  : panelAlt)
+                        border.color: appController.finalStatus === "PASS"
+                                      ? green
+                                      : (appController.finalStatus === "COPIED (UNVERIFIED)" ? warn : line)
                         radius: 4
                         visible: appController.canExport
                         Column {
@@ -458,14 +464,24 @@ ApplicationWindow {
                             spacing: 2
                             MetaLabel { text: "Status" }
                             Text {
-                                text: appController.pass ? "✓ PASS" : "✕ FAIL"
-                                color: appController.pass ? green : bad
+                                text: appController.finalStatus === "PASS"
+                                      ? "✓ PASS"
+                                      : (appController.finalStatus === "COPIED (UNVERIFIED)"
+                                         ? "⚠ COPIED (UNVERIFIED)"
+                                         : "✕ FAIL")
+                                color: appController.finalStatus === "PASS"
+                                       ? green
+                                       : (appController.finalStatus === "COPIED (UNVERIFIED)" ? warn : bad)
                                 font.family: root.mono
                                 font.pixelSize: 18
                                 font.bold: true
                             }
                             Text {
-                                text: appController.pass ? "All destination verifications passed" : "One or more destination verifications failed"
+                                text: appController.finalStatus === "PASS"
+                                      ? "All destination verifications passed"
+                                      : (appController.finalStatus === "COPIED (UNVERIFIED)"
+                                         ? "Files copied but not verified"
+                                         : "One or more destination verifications failed")
                                 color: muted
                                 font.family: root.sans
                                 font.pixelSize: 10
@@ -474,7 +490,11 @@ ApplicationWindow {
                                 width: parent.width
                             }
                         }
-                        Accessible.name: appController.pass ? "Pass status. All destination verifications passed." : "Fail status. One or more destination verifications failed."
+                        Accessible.name: appController.finalStatus === "PASS"
+                                         ? "Pass status. All destination verifications passed."
+                                         : (appController.finalStatus === "COPIED (UNVERIFIED)"
+                                            ? "Copied unverified status. Files copied but not verified."
+                                            : "Fail status. One or more destination verifications failed.")
                     }
                 }
             }

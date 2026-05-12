@@ -117,6 +117,7 @@ pub fn scan_source(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn offload_files(
     source: &Path,
     scan: &SourceScan,
