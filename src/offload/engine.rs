@@ -1,5 +1,6 @@
 use crate::offload::*;
 use crossbeam_channel::{bounded, Sender};
+use globset::{Glob, GlobSetBuilder};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -12,6 +13,13 @@ const CHANNEL_BOUND: usize = 16;
 enum ChunkMessage {
     Data(Vec<u8>),
     End,
+}
+
+#[derive(Debug)]
+pub enum FileCopyStatus {
+    Copied(String),
+    Skipped,
+    Failed(String),
 }
 
 pub fn scan_source(
@@ -37,6 +45,22 @@ pub fn scan_source(
     let mut files = Vec::new();
     let mut total_size = 0u64;
     let mut total_files = 0u64;
+    let mut buf = vec![0u8; CHUNK_SIZE];
+
+    let ignore_glob = if !options.ignore_patterns.is_empty() {
+        let mut builder = GlobSetBuilder::new();
+        for p in &options.ignore_patterns {
+            let trimmed = p.trim();
+            if !trimmed.is_empty() {
+                if let Ok(glob) = Glob::new(trimmed) {
+                    builder.add(glob);
+                }
+            }
+        }
+        Some(builder.build().unwrap())
+    } else {
+        None
+    };
 
     for entry in walker {
         let entry = entry?;
@@ -51,9 +75,14 @@ pub fn scan_source(
         if options.ignore_hidden_system && is_hidden_or_system(path) {
             continue;
         }
-        if !options.ignore_patterns.is_empty() && should_ignore(&rel_str, &options.ignore_patterns)
-        {
-            continue;
+        if let Some(ref gs) = ignore_glob {
+            let basename = Path::new(&rel_str)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&rel_str);
+            if gs.is_match(rel_str.as_str()) || gs.is_match(basename) {
+                continue;
+            }
         }
 
         let size = entry.metadata()?.len();
@@ -63,7 +92,6 @@ pub fn scan_source(
         // Compute blake3 hash
         let mut file = File::open(path)?;
         let mut hasher = blake3::Hasher::new();
-        let mut buf = vec![0u8; CHUNK_SIZE];
         loop {
             let n = file.read(&mut buf)?;
             if n == 0 {
@@ -96,6 +124,9 @@ pub fn offload_files(
     verify: bool,
     cancel_flag: &AtomicBool,
     progress: &mut dyn FnMut(OffloadProgress),
+    sync_writes: bool,
+    skip_existing: bool,
+    warnings: &mut Vec<String>,
 ) -> anyhow::Result<Vec<DestinationResult>> {
     let mut results: Vec<DestinationResult> = destinations
         .iter()
@@ -105,6 +136,7 @@ pub fn offload_files(
             files_copied: 0,
             files_verified: 0,
             files_failed: 0,
+            files_skipped: 0,
             bytes_copied: 0,
             final_error: None,
         })
@@ -113,6 +145,7 @@ pub fn offload_files(
     let overall_files_total = scan.files.len() as u64;
     let overall_bytes_total = scan.total_size;
     let mut overall_bytes_completed = 0u64;
+    let mut verify_buf = vec![0u8; CHUNK_SIZE];
 
     for (idx, file_entry) in scan.files.iter().enumerate() {
         let overall_files_completed = (idx + 1) as u64;
@@ -130,44 +163,59 @@ pub fn offload_files(
 
         let src_path = source.join(&file_entry.relative_path);
 
+        // Collect per-file warnings
+        let mut file_warnings = Vec::new();
+
         // Copy file to all destinations
         let copy_result = copy_file_fanout(
             &src_path,
             &file_entry.relative_path,
             destinations,
             cancel_flag,
+            sync_writes,
+            skip_existing,
+            &mut file_warnings,
         );
 
-        match copy_result {
-            Ok(dest_hashes) => {
-                for (idx, hash) in dest_hashes.iter().enumerate() {
-                    if hash.is_some() {
-                        results[idx].files_copied += 1;
-                        results[idx].bytes_copied += file_entry.size;
-                        results[idx].state = DestinationState::Copying;
+        warnings.extend(file_warnings);
 
-                        if verify {
-                            results[idx].state = DestinationState::Verifying;
-                            let dest_path = destinations[idx].path.join(&file_entry.relative_path);
-                            match verify_file(&dest_path, &file_entry.source_blake3) {
-                                Ok(()) => {
-                                    results[idx].files_verified += 1;
-                                }
-                                Err(e) => {
-                                    results[idx].files_failed += 1;
-                                    results[idx].final_error = Some(format!(
-                                        "{}: verify failed - {}",
-                                        file_entry.relative_path, e
-                                    ));
+        match copy_result {
+            Ok(statuses) => {
+                for (idx, status) in statuses.iter().enumerate() {
+                    match status {
+                        FileCopyStatus::Copied(_) => {
+                            results[idx].files_copied += 1;
+                            results[idx].bytes_copied += file_entry.size;
+                            results[idx].state = DestinationState::Copying;
+
+                            if verify {
+                                results[idx].state = DestinationState::Verifying;
+                                let dest_path = destinations[idx].path.join(&file_entry.relative_path);
+                                match verify_file(&dest_path, &file_entry.source_blake3, &mut verify_buf) {
+                                    Ok(()) => {
+                                        results[idx].files_verified += 1;
+                                    }
+                                    Err(e) => {
+                                        results[idx].files_failed += 1;
+                                        results[idx].final_error = Some(format!(
+                                            "{}: verify failed - {}",
+                                            file_entry.relative_path, e
+                                        ));
+                                    }
                                 }
                             }
                         }
-                    } else {
-                        results[idx].files_failed += 1;
-                        results[idx].state = DestinationState::Failed;
-                        if results[idx].final_error.is_none() {
-                            results[idx].final_error =
-                                Some(format!("{}: copy failed", file_entry.relative_path));
+                        FileCopyStatus::Skipped => {
+                            results[idx].files_skipped += 1;
+                            results[idx].state = DestinationState::Copying;
+                        }
+                        FileCopyStatus::Failed(err) => {
+                            results[idx].files_failed += 1;
+                            results[idx].state = DestinationState::Failed;
+                            if results[idx].final_error.is_none() {
+                                results[idx].final_error =
+                                    Some(format!("{}: {}", file_entry.relative_path, err));
+                            }
                         }
                     }
                 }
@@ -192,7 +240,7 @@ pub fn offload_files(
             .map(|(i, r)| DestinationProgress {
                 index: i,
                 state: r.state,
-                files_completed: r.files_copied + r.files_verified,
+                files_completed: r.files_copied + r.files_verified + r.files_skipped,
                 files_total: overall_files_total,
                 bytes_completed: r.bytes_copied,
                 bytes_total: overall_bytes_total,
@@ -213,6 +261,7 @@ pub fn offload_files(
             overall_bytes_total,
             current_file: file_entry.relative_path.clone(),
             destinations: dest_progress,
+            warnings: warnings.clone(),
         });
     }
 
@@ -233,21 +282,53 @@ fn copy_file_fanout(
     relative_path: &str,
     destinations: &[DestinationConfig],
     cancel_flag: &AtomicBool,
-) -> anyhow::Result<Vec<Option<String>>> {
-    let mut src_file = File::open(src_path)
-        .map_err(|e| anyhow::anyhow!("Open source {}: {}", src_path.display(), e))?;
+    sync_writes: bool,
+    skip_existing: bool,
+    warnings: &mut Vec<String>,
+) -> anyhow::Result<Vec<FileCopyStatus>> {
+    let dest_count = destinations.len();
+    let mut result: Vec<FileCopyStatus> = Vec::with_capacity(dest_count);
 
-    let mut senders: Vec<Sender<ChunkMessage>> = Vec::with_capacity(destinations.len());
-    let mut handles = Vec::with_capacity(destinations.len());
+    // Determine which destinations need a copy thread vs skip
+    for (idx, dest) in destinations.iter().enumerate() {
+        let dest_path = dest.path.join(relative_path);
+        if skip_existing && dest_path.exists() {
+            result.push(FileCopyStatus::Skipped);
+        } else {
+            // Temporary placeholder - will be filled by the actual copy
+            result.push(FileCopyStatus::Failed("Not started".into()));
+            _ = idx; // suppress unused warning
+        }
+    }
 
-    for dest in destinations {
+    // Spawn writer threads for destinations that need copying
+    let mut senders: Vec<(usize, Sender<ChunkMessage>)> = Vec::new();
+    let mut handles: Vec<(usize, std::thread::JoinHandle<anyhow::Result<String>>)> = Vec::new();
+
+    for (idx, dest) in destinations.iter().enumerate() {
+        if matches!(result[idx], FileCopyStatus::Skipped) {
+            continue;
+        }
+
         let dest_path = dest.path.join(relative_path);
         if let Some(parent) = dest_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
+        if dest_path.is_symlink() {
+            anyhow::bail!(
+                "Destination path is a symlink, refusing to follow: {}",
+                dest_path.display()
+            );
+        }
+        if dest_path.exists() {
+            let msg = format!("Overwriting existing file: {}", dest_path.display());
+            warnings.push(msg.clone());
+            eprintln!("{}", msg);
+        }
+
         let (tx, rx) = bounded::<ChunkMessage>(CHANNEL_BOUND);
-        senders.push(tx);
+        senders.push((idx, tx));
 
         let handle = std::thread::spawn(move || -> anyhow::Result<String> {
             let mut file = File::create(&dest_path)
@@ -263,63 +344,95 @@ fn copy_file_fanout(
                     ChunkMessage::End => break,
                 }
             }
-            file.sync_data()?;
+            if sync_writes {
+                file.sync_data()?;
+            }
             Ok(hasher.finalize().to_hex().to_string())
         });
-        handles.push(handle);
+        handles.push((idx, handle));
     }
+
+    if senders.is_empty() {
+        // All destinations skipped, nothing to copy
+        return Ok(result);
+    }
+
+    let mut src_file = File::open(src_path)
+        .map_err(|e| anyhow::anyhow!("Open source {}: {}", src_path.display(), e))?;
 
     let mut buf = vec![0u8; CHUNK_SIZE];
     loop {
         if cancel_flag.load(Ordering::Relaxed) {
-            for sender in &senders {
+            for (_, sender) in &senders {
                 let _ = sender.send(ChunkMessage::End);
             }
             return Err(anyhow::anyhow!("Cancelled by user"));
         }
 
-        let n = src_file.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
+        let n = match src_file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) => {
+                for (_, sender) in &senders {
+                    let _ = sender.send(ChunkMessage::End);
+                }
+                return Err(anyhow::anyhow!("Read error {}: {}", src_path.display(), e));
+            }
+        };
 
         let chunk = ChunkMessage::Data(buf[..n].to_vec());
-        for sender in &senders {
-            sender
-                .send(chunk.clone())
-                .map_err(|_| anyhow::anyhow!("Destination writer disconnected"))?;
+        // Gracefully handle individual destination failures
+        let mut i = 0;
+        while i < senders.len() {
+            let (dest_idx, ref sender) = senders[i];
+            if sender.send(chunk.clone()).is_ok() {
+                i += 1;
+            } else {
+                // This destination disconnected - mark as failed and continue
+                result[dest_idx] =
+                    FileCopyStatus::Failed("Destination writer disconnected".into());
+                warnings.push(format!(
+                    "Destination {} disconnected during copy of {}",
+                    dest_idx, relative_path
+                ));
+                // Remove handle for this destination
+                if let Some(pos) = handles.iter().position(|(idx, _)| *idx == dest_idx) {
+                    handles.swap_remove(pos);
+                }
+                senders.swap_remove(i);
+            }
         }
     }
 
-    for sender in &senders {
-        sender.send(ChunkMessage::End)?;
+    // Send End to remaining active senders
+    for (_, sender) in &senders {
+        let _ = sender.send(ChunkMessage::End);
     }
 
-    let mut dest_hashes = Vec::with_capacity(handles.len());
-    for handle in handles {
+    // Collect results from remaining handles (indexed by dest_idx)
+    for (dest_idx, handle) in handles {
         match handle.join() {
-            Ok(Ok(hash)) => dest_hashes.push(Some(hash)),
+            Ok(Ok(hash)) => result[dest_idx] = FileCopyStatus::Copied(hash),
             Ok(Err(e)) => {
-                dest_hashes.push(None);
-                eprintln!("Destination writer error: {}", e);
+                result[dest_idx] = FileCopyStatus::Failed(format!("Writer error: {}", e));
+                warnings.push(format!("Destination {} writer error: {}", dest_idx, e));
             }
             Err(_) => {
-                dest_hashes.push(None);
-                eprintln!("Destination writer thread panicked");
+                result[dest_idx] = FileCopyStatus::Failed("Writer thread panicked".into());
+                warnings.push(format!("Destination {} writer thread panicked", dest_idx));
             }
         }
     }
 
-    Ok(dest_hashes)
+    Ok(result)
 }
 
-fn verify_file(dest_path: &Path, expected_blake3: &str) -> anyhow::Result<()> {
+fn verify_file(dest_path: &Path, expected_blake3: &str, buf: &mut [u8]) -> anyhow::Result<()> {
     let mut file = File::open(dest_path)?;
     let mut hasher = blake3::Hasher::new();
-    let mut buf = vec![0u8; CHUNK_SIZE];
 
     loop {
-        let n = file.read(&mut buf)?;
+        let n = file.read(buf)?;
         if n == 0 {
             break;
         }
@@ -337,6 +450,7 @@ fn verify_file(dest_path: &Path, expected_blake3: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[inline]
 fn is_hidden_or_system(path: &Path) -> bool {
     #[cfg(windows)]
     {
@@ -357,123 +471,11 @@ fn is_hidden_or_system(path: &Path) -> bool {
     false
 }
 
-fn should_ignore(rel_path: &str, patterns: &[String]) -> bool {
-    let basename = Path::new(rel_path)
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
 
-    for pattern in patterns {
-        let pat = pattern.trim();
-        if pat.is_empty() {
-            continue;
-        }
-        if glob_match(pat, &basename) || glob_match(pat, rel_path) {
-            return true;
-        }
-    }
-    false
-}
-
-fn glob_match(pattern: &str, text: &str) -> bool {
-    if !pattern.contains('*') {
-        return text == pattern;
-    }
-    let parts: Vec<&str> = pattern.split('*').collect();
-    if parts.len() == 1 {
-        return text == pattern;
-    }
-    if parts[0].is_empty() {
-        if parts.len() == 2 {
-            return text.ends_with(parts[1]);
-        }
-        if parts.last().is_none_or(|p| p.is_empty()) {
-            let middle = &pattern[1..pattern.len() - 1];
-            return text.contains(middle);
-        }
-    }
-    if parts.last().is_some_and(|p| p.is_empty()) {
-        return text.starts_with(parts[0]);
-    }
-    if parts.len() == 3 && parts[0].is_empty() && parts[2].is_empty() {
-        return text.contains(parts[1]);
-    }
-    let mut pos = 0;
-    for (i, part) in parts.iter().enumerate() {
-        if part.is_empty() {
-            continue;
-        }
-        match text[pos..].find(part) {
-            Some(idx) => {
-                if i == 0 && idx != 0 {
-                    return false;
-                }
-                pos += idx + part.len();
-            }
-            None => return false,
-        }
-    }
-    if !pattern.ends_with('*') && pos != text.len() {
-        return false;
-    }
-    true
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn glob_exact_match() {
-        assert!(glob_match("hello.txt", "hello.txt"));
-        assert!(!glob_match("hello.txt", "hello2.txt"));
-    }
-
-    #[test]
-    fn glob_prefix_wildcard() {
-        assert!(glob_match("*.txt", "hello.txt"));
-        assert!(glob_match("*.log", "error.log"));
-        assert!(!glob_match("*.txt", "hello.log"));
-    }
-
-    #[test]
-    fn glob_suffix_wildcard() {
-        assert!(glob_match("hello.*", "hello.txt"));
-        assert!(glob_match("hello.*", "hello.log"));
-        assert!(!glob_match("hello.*", "world.txt"));
-    }
-
-    #[test]
-    fn glob_contains_wildcard() {
-        assert!(glob_match("*test*", "mytestfile"));
-        assert!(glob_match("*tmp*", "temp_tmp_file"));
-        assert!(!glob_match("*test*", "nothing"));
-    }
-
-    #[test]
-    fn glob_both_ends_wildcard() {
-        assert!(glob_match("*middle*", "amiddleb"));
-        assert!(!glob_match("*middle*", "nothing"));
-    }
-
-    #[test]
-    fn should_ignore_basename_glob() {
-        let patterns = vec!["*.txt".to_string()];
-        assert!(should_ignore("folder/hello.txt", &patterns));
-        assert!(!should_ignore("folder/hello.log", &patterns));
-    }
-
-    #[test]
-    fn should_ignore_path_wildcard() {
-        let patterns = vec!["*temp*".to_string()];
-        assert!(should_ignore("some/temp/file.txt", &patterns));
-    }
-
-    #[test]
-    fn should_ignore_empty_patterns() {
-        let patterns: Vec<String> = vec![];
-        assert!(!should_ignore("anything.txt", &patterns));
-    }
 
     #[test]
     fn scan_source_ignores_hidden_directories_when_enabled() {
@@ -534,7 +536,8 @@ mod tests {
         std::fs::write(&path, data).unwrap();
 
         let hash = blake3::hash(data).to_hex().to_string();
-        assert!(verify_file(&path, &hash).is_ok());
+        let mut buf = vec![0u8; CHUNK_SIZE];
+        assert!(verify_file(&path, &hash, &mut buf).is_ok());
     }
 
     #[test]
@@ -544,6 +547,7 @@ mod tests {
         std::fs::write(&path, b"correct data").unwrap();
 
         let wrong_hash = blake3::hash(b"different data").to_hex().to_string();
-        assert!(verify_file(&path, &wrong_hash).is_err());
+        let mut buf = vec![0u8; CHUNK_SIZE];
+        assert!(verify_file(&path, &wrong_hash, &mut buf).is_err());
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "seder-dit-tool"
-version = "0.0.15"
+version = "0.0.16"
 edition = "2021"
 license = "GPL-3.0-only"
 description = "Local-first Qt/Rust DIT offload tool for SEDER Media Suite."
@@ -22,6 +22,7 @@ anyhow = "1.0"
 blake3 = "1.5"
 walkdir = "2.5"
 crossbeam-channel = "0.5"
+globset = "0.4"
 
 [dev-dependencies]
 tempfile = "3.13"

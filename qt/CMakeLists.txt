@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(SederMediaSuiteDitQt VERSION 0.0.1 LANGUAGES CXX)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../Cargo.toml" CARGO_TOML)
+string(REGEX MATCH "\nversion = \"([^\"]+)\"" _ ${CARGO_TOML})
+set(CARGO_VERSION "${CMAKE_MATCH_1}")
+if(NOT CARGO_VERSION)
+    set(CARGO_VERSION "0.0.0")
+endif()
+project(SederMediaSuiteDitQt VERSION ${CARGO_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -142,6 +148,14 @@ qt_add_qml_module(seder-media-suite-dit-qt
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/MetaLabel.qml
+        qml/FieldLabel.qml
+        qml/DenseTextField.qml
+        qml/QuietButton.qml
+        qml/StyledComboBox.qml
+        qml/StyledCheckBox.qml
+        qml/StyledProgressBar.qml
+        qml/PathPicker.qml
 )
 
 target_include_directories(seder-media-suite-dit-qt PRIVATE cpp)

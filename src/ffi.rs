@@ -33,6 +33,9 @@ pub struct SederOffloadRequest {
     pub ignore_patterns: *const c_char,
     pub ignore_hidden_system: u8,
     pub verify_after_copy: u8,
+    pub sync_writes: u8,
+    pub skip_existing: u8,
+    pub generate_report: u8,
     pub cancel_token: *mut u8,
 }
 
@@ -55,12 +58,39 @@ pub struct SederOffloadProgress {
     pub overall_bytes_completed: u64,
     pub overall_bytes_total: u64,
     pub current_file: *const c_char,
+    pub warning: *const c_char,
     pub destinations: *const SederDestinationProgress,
     pub destination_count: usize,
 }
 
 pub type SederOffloadProgressCallback =
     extern "C" fn(progress: *const SederOffloadProgress, user_data: *mut c_void);
+
+// ============================================================================
+// Reusable C-compatible string buffer (avoids per-call allocation)
+// ============================================================================
+
+struct CStrBuf {
+    buf: Vec<u8>,
+}
+
+impl CStrBuf {
+    fn with_capacity(cap: usize) -> Self {
+        let mut buf = Vec::with_capacity(cap);
+        buf.push(0);
+        Self { buf }
+    }
+
+    fn set(&mut self, s: &str) {
+        self.buf.clear();
+        self.buf.extend_from_slice(s.as_bytes());
+        self.buf.push(0);
+    }
+
+    fn as_ptr(&self) -> *const c_char {
+        self.buf.as_ptr() as *const c_char
+    }
+}
 
 // ============================================================================
 // Report Handle
@@ -119,6 +149,9 @@ pub unsafe extern "C" fn seder_offload_start(
             ignore_hidden_system: req.ignore_hidden_system != 0,
             ignore_patterns,
             verify_after_copy: req.verify_after_copy != 0,
+            sync_writes: req.sync_writes != 0,
+            skip_existing: req.skip_existing != 0,
+            generate_report: req.generate_report != 0,
         };
 
         let offload_request = OffloadRequest {
@@ -131,9 +164,20 @@ pub unsafe extern "C" fn seder_offload_start(
         let cancel_flag = Arc::new(AtomicBool::new(false));
         let cancel_ptr = req.cancel_token;
 
-        // Progress callback bridge
-        let mut progress_strings: Vec<(CString, Option<CString>)> = Vec::new();
-        let mut dest_progress_vec: Vec<SederDestinationProgress> = Vec::new();
+        let destination_count = offload_request.destinations.len();
+
+        // Progress callback bridge with reusable buffers
+        let mut phase_buf = CStrBuf::with_capacity(64);
+        let mut current_file_buf = CStrBuf::with_capacity(256);
+        let mut warning_buf = CStrBuf::with_capacity(512);
+        let mut dest_file_bufs: Vec<CStrBuf> = (0..destination_count)
+            .map(|_| CStrBuf::with_capacity(256))
+            .collect();
+        let mut dest_err_bufs: Vec<Option<CStrBuf>> = (0..destination_count)
+            .map(|_| None)
+            .collect();
+        let mut dest_progress_vec: Vec<SederDestinationProgress> =
+            Vec::with_capacity(destination_count);
 
         let mut progress_callback = |progress: OffloadProgress| {
             // Update cancel flag from Qt side
@@ -141,44 +185,55 @@ pub unsafe extern "C" fn seder_offload_start(
                 cancel_flag.store(true, Ordering::Relaxed);
             }
 
-            progress_strings.clear();
-            dest_progress_vec.clear();
-
-            let phase_c = CString::new(progress.phase.clone()).unwrap_or_default();
-            let current_file_c = CString::new(progress.current_file.clone()).unwrap_or_default();
-
-            for dest in &progress.destinations {
-                let file_c = CString::new(dest.current_file.clone()).unwrap_or_default();
-                let err_c = dest
-                    .error
-                    .as_ref()
-                    .map(|e| CString::new(e.clone()).unwrap_or_default());
-                progress_strings.push((file_c, err_c));
-            }
+            phase_buf.set(&progress.phase);
+            current_file_buf.set(&progress.current_file);
 
             for (idx, dest) in progress.destinations.iter().enumerate() {
-                let (file_c, err_c) = &progress_strings[idx];
+                dest_file_bufs[idx].set(&dest.current_file);
+                match dest.error {
+                    Some(ref err) => match dest_err_bufs[idx] {
+                        Some(ref mut buf) => buf.set(err),
+                        None => {
+                            let mut buf = CStrBuf::with_capacity(err.len() + 1);
+                            buf.set(err);
+                            dest_err_bufs[idx] = Some(buf);
+                        }
+                    },
+                    None => dest_err_bufs[idx] = None,
+                }
+            }
+
+            dest_progress_vec.clear();
+            for (idx, dest) in progress.destinations.iter().enumerate() {
                 dest_progress_vec.push(SederDestinationProgress {
                     state: dest.state as u32,
                     files_completed: dest.files_completed,
                     files_total: dest.files_total,
                     bytes_completed: dest.bytes_completed,
                     bytes_total: dest.bytes_total,
-                    current_file: file_c.as_ptr(),
-                    error: err_c
+                    current_file: dest_file_bufs[idx].as_ptr(),
+                    error: dest_err_bufs[idx]
                         .as_ref()
-                        .map(|c| c.as_ptr())
+                        .map(|b| b.as_ptr())
                         .unwrap_or(std::ptr::null()),
                 });
             }
 
+            let warning_str = progress.warnings.last().map(|s| s.as_str()).unwrap_or("");
+            warning_buf.set(warning_str);
+
             let c_progress = SederOffloadProgress {
-                phase: phase_c.as_ptr(),
+                phase: phase_buf.as_ptr(),
                 overall_files_completed: progress.overall_files_completed,
                 overall_files_total: progress.overall_files_total,
                 overall_bytes_completed: progress.overall_bytes_completed,
                 overall_bytes_total: progress.overall_bytes_total,
-                current_file: current_file_c.as_ptr(),
+                current_file: current_file_buf.as_ptr(),
+                warning: if warning_str.is_empty() {
+                    std::ptr::null()
+                } else {
+                    warning_buf.as_ptr()
+                },
                 destinations: dest_progress_vec.as_ptr(),
                 destination_count: dest_progress_vec.len(),
             };
@@ -186,7 +241,6 @@ pub unsafe extern "C" fn seder_offload_start(
             callback(&c_progress, user_data);
         };
 
-        let destination_count = offload_request.destinations.len();
         let scan_destinations = || -> Vec<DestinationProgress> {
             (0..destination_count)
                 .map(|index| DestinationProgress {
@@ -210,6 +264,7 @@ pub unsafe extern "C" fn seder_offload_start(
             overall_bytes_total: 0,
             current_file: String::new(),
             destinations: scan_destinations(),
+            warnings: vec![],
         });
 
         // Scan source
@@ -225,6 +280,7 @@ pub unsafe extern "C" fn seder_offload_start(
                     overall_bytes_total: 0,
                     current_file: String::new(),
                     destinations: scan_destinations(),
+                    warnings: vec![],
                 });
             },
         )?;
@@ -237,11 +293,15 @@ pub unsafe extern "C" fn seder_offload_start(
             overall_bytes_total: scan.total_size,
             current_file: String::new(),
             destinations: scan_destinations(),
+            warnings: vec![],
         });
 
         if scan.files.is_empty() {
             return Err(anyhow!("Source is empty: no files found to offload"));
         }
+
+        // Collect warnings from engine
+        let mut warnings: Vec<String> = Vec::new();
 
         // Offload
         let destination_results = offload_files(
@@ -251,12 +311,14 @@ pub unsafe extern "C" fn seder_offload_start(
             offload_request.options.verify_after_copy,
             &cancel_flag,
             &mut progress_callback,
+            offload_request.options.sync_writes,
+            offload_request.options.skip_existing,
+            &mut warnings,
         )?;
 
         let timestamp = chrono_nowish();
         let source_path = offload_request.source.to_string_lossy().replace('\\', "/");
 
-        let mut warnings: Vec<String> = Vec::new();
         for dest in &destination_results {
             if are_same_volume(&offload_request.source, &dest.config.path) {
                 warnings.push(format!(
@@ -276,9 +338,21 @@ pub unsafe extern "C" fn seder_offload_start(
             checksum_verified: offload_request.options.verify_after_copy,
         };
 
-        let txt = report::report_txt(&report);
-        let csv = report::report_csv(&report);
-        let mhl = report::report_mhl(&report, 0).unwrap_or_default();
+        let txt = if offload_request.options.generate_report {
+            report::report_txt(&report)
+        } else {
+            String::new()
+        };
+        let csv = if offload_request.options.generate_report {
+            report::report_csv(&report)
+        } else {
+            String::new()
+        };
+        let mhl = if offload_request.options.generate_report && report.checksum_verified {
+            report::report_mhl(&report, 0).unwrap_or_default()
+        } else {
+            String::new()
+        };
 
         let handle = Box::new(OffloadReportHandle {
             report,

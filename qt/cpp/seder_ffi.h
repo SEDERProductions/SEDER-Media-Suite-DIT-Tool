@@ -23,6 +23,9 @@ typedef struct SederOffloadRequest {
     const char *ignore_patterns;
     uint8_t ignore_hidden_system;
     uint8_t verify_after_copy;
+    uint8_t sync_writes;
+    uint8_t skip_existing;
+    uint8_t generate_report;
     uint8_t *cancel_token;
 } SederOffloadRequest;
 
@@ -43,6 +46,7 @@ typedef struct SederOffloadProgress {
     uint64_t overall_bytes_completed;
     uint64_t overall_bytes_total;
     const char *current_file;
+    const char *warning;
     const SederDestinationProgress *destinations;
     size_t destination_count;
 } SederOffloadProgress;

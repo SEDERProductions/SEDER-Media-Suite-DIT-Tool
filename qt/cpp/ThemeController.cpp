@@ -67,5 +67,41 @@ void ThemeController::updateDark()
         return;
     }
     m_dark = next;
+    applyPalette();
     emit darkChanged();
+}
+
+void ThemeController::applyPalette()
+{
+    QPalette p;
+    if (m_dark) {
+        p.setColor(QPalette::Window, QColor(0x12, 0x11, 0x0f));
+        p.setColor(QPalette::WindowText, QColor(0xec, 0xe6, 0xd9));
+        p.setColor(QPalette::Base, QColor(0x1f, 0x1d, 0x1a));
+        p.setColor(QPalette::AlternateBase, QColor(0x28, 0x25, 0x21));
+        p.setColor(QPalette::ToolTipBase, QColor(0x28, 0x25, 0x21));
+        p.setColor(QPalette::ToolTipText, QColor(0xec, 0xe6, 0xd9));
+        p.setColor(QPalette::Text, QColor(0xec, 0xe6, 0xd9));
+        p.setColor(QPalette::Button, QColor(0x1f, 0x1d, 0x1a));
+        p.setColor(QPalette::ButtonText, QColor(0xec, 0xe6, 0xd9));
+        p.setColor(QPalette::BrightText, QColor(0xd1, 0x41, 0x1a));
+        p.setColor(QPalette::Link, QColor(0x4c, 0xab, 0x7e));
+        p.setColor(QPalette::Highlight, QColor(0x4c, 0xab, 0x7e));
+        p.setColor(QPalette::HighlightedText, QColor(0x12, 0x11, 0x0f));
+    } else {
+        p.setColor(QPalette::Window, QColor(0xec, 0xe6, 0xd9));
+        p.setColor(QPalette::WindowText, QColor(0x16, 0x14, 0x0f));
+        p.setColor(QPalette::Base, QColor(0xf8, 0xf4, 0xea));
+        p.setColor(QPalette::AlternateBase, QColor(0xe3, 0xdc, 0xcb));
+        p.setColor(QPalette::ToolTipBase, QColor(0xe3, 0xdc, 0xcb));
+        p.setColor(QPalette::ToolTipText, QColor(0x16, 0x14, 0x0f));
+        p.setColor(QPalette::Text, QColor(0x16, 0x14, 0x0f));
+        p.setColor(QPalette::Button, QColor(0xf8, 0xf4, 0xea));
+        p.setColor(QPalette::ButtonText, QColor(0x16, 0x14, 0x0f));
+        p.setColor(QPalette::BrightText, QColor(0xc6, 0x3b, 0x13));
+        p.setColor(QPalette::Link, QColor(0x1f, 0x7a, 0x4d));
+        p.setColor(QPalette::Highlight, QColor(0x1f, 0x7a, 0x4d));
+        p.setColor(QPalette::HighlightedText, QColor(0xf8, 0xf4, 0xea));
+    }
+    qApp->setPalette(p);
 }

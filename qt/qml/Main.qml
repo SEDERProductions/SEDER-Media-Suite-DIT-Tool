@@ -89,245 +89,7 @@ ApplicationWindow {
         }
     }
 
-    component MetaLabel: Text {
-        color: faint
-        font.family: root.mono
-        font.pixelSize: 10
-        font.capitalization: Font.AllUppercase
-    }
 
-    component FieldLabel: Text {
-        color: muted
-        font.family: root.sans
-        font.pixelSize: 12
-    }
-
-    component DenseTextField: TextField {
-        color: ink
-        selectedTextColor: "#ffffff"
-        selectionColor: red
-        font.family: root.sans
-        font.pixelSize: 13
-        padding: 8
-        placeholderTextColor: faint
-        background: Rectangle {
-            color: panelAlt
-            border.color: line
-            radius: 4
-        }
-    }
-
-    component QuietButton: Button {
-        property string variant: "neutral" // neutral | primary | danger
-
-        readonly property color variantBase: {
-            if (variant === "primary") return green
-            if (variant === "danger") return red
-            return panelAlt
-        }
-        readonly property color variantHover: {
-            if (variant === "primary") return dark ? "#5ab98d" : "#2f8c5d"
-            if (variant === "danger") return dark ? "#e2532d" : "#d84b22"
-            return dark ? "#332f2a" : "#ded6c5"
-        }
-        readonly property color variantFocus: {
-            if (variant === "primary") return dark ? "#67c59a" : "#3f9a69"
-            if (variant === "danger") return dark ? "#ef6240" : "#e05a33"
-            return dark ? "#3a352e" : "#d6cfbe"
-        }
-        readonly property color variantBorder: {
-            if (variant === "neutral") return line
-            return variantBase
-        }
-        readonly property color variantText: variant === "neutral" ? ink : "#ffffff"
-
-        height: 32
-        font.family: root.sans
-        font.pixelSize: 12
-        hoverEnabled: true
-        focusPolicy: Qt.StrongFocus
-
-        contentItem: Text {
-            text: parent.text
-            color: parent.enabled ? parent.variantText : (parent.variant === "neutral" ? faint : "#f4eee5")
-            font: parent.font
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-        }
-        background: Rectangle {
-            color: {
-                if (!parent.enabled)
-                    return parent.variant === "neutral" ? panelAlt : Qt.darker(parent.variantBase, 1.16)
-                if (parent.down || parent.visualFocus)
-                    return parent.variantFocus
-                if (parent.hovered)
-                    return parent.variantHover
-                return parent.variantBase
-            }
-            border.color: parent.enabled ? (parent.visualFocus ? parent.variantFocus : parent.variantBorder)
-                                       : (parent.variant === "neutral" ? line : Qt.darker(parent.variantBase, 1.25))
-            border.width: parent.visualFocus ? 2 : 1
-            radius: 4
-            opacity: parent.enabled ? 1 : 0.6
-        }
-    }
-
-    component StyledComboBox: ComboBox {
-        id: control
-        font.family: root.sans
-        font.pixelSize: 12
-        contentItem: Text {
-            leftPadding: 8
-            rightPadding: 8
-            text: control.displayText
-            color: ink
-            font: control.font
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-        }
-        background: Rectangle {
-            color: panelAlt
-            border.color: line
-            radius: 4
-        }
-        popup: Popup {
-            y: control.height
-            width: control.width
-            padding: 1
-            background: Rectangle {
-                color: panelAlt
-                border.color: line
-                radius: 4
-            }
-            contentItem: ListView {
-                clip: true
-                implicitHeight: contentHeight
-                model: control.model
-                currentIndex: control.currentIndex
-                delegate: ItemDelegate {
-                    width: ListView.view.width
-                    contentItem: Text {
-                        text: modelData
-                        color: ink
-                        font: control.font
-                        elide: Text.ElideRight
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    highlighted: control.highlightedIndex === index
-                    background: Rectangle {
-                        color: highlighted ? red : "transparent"
-                        radius: 2
-                    }
-                }
-                ScrollBar.vertical: ScrollBar {}
-            }
-        }
-    }
-
-
-
-    component StyledCheckBox: CheckBox {
-        id: control
-        font.family: root.sans
-        font.pixelSize: 12
-        spacing: 8
-        hoverEnabled: true
-        opacity: enabled ? 1 : 0.45
-        indicator: Rectangle {
-            implicitWidth: 16
-            implicitHeight: 16
-            x: control.leftPadding
-            y: control.topPadding + (control.availableHeight - height) / 2
-            radius: 3
-            color: control.checked ? red : panelAlt
-            border.color: control.visualFocus ? red : (control.hovered ? muted : line)
-            border.width: control.visualFocus ? 2 : 1
-            Rectangle {
-                anchors.centerIn: parent
-                width: 8
-                height: 8
-                radius: 2
-                visible: control.checked
-                color: "#ffffff"
-            }
-        }
-        contentItem: Text {
-            text: control.text
-            font: control.font
-            color: control.enabled ? ink : muted
-            leftPadding: control.indicator.width + control.spacing
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-        }
-    }
-
-    component StyledProgressBar: ProgressBar {
-        id: control
-        from: 0
-        to: 1
-        hoverEnabled: true
-        opacity: enabled ? 1 : 0.45
-        background: Rectangle {
-            implicitWidth: 180
-            implicitHeight: 8
-            radius: 4
-            color: panelAlt
-            border.color: control.visualFocus ? red : (control.hovered ? muted : line)
-            border.width: control.visualFocus ? 2 : 1
-        }
-        contentItem: Item {
-            Rectangle {
-                width: control.visualPosition * parent.width
-                height: parent.height
-                radius: 4
-                color: red
-            }
-        }
-    }
-
-    component PathPicker: Rectangle {
-        id: pathPickerRoot
-        property string label: ""
-        property string path: ""
-        signal pick()
-        Layout.fillWidth: true
-        height: 68
-        color: "transparent"
-        ColumnLayout {
-            anchors.fill: parent
-            spacing: 6
-            FieldLabel { text: label }
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 8
-                QuietButton {
-                    text: "Choose"
-                    Layout.preferredWidth: 82
-                    enabled: !appController.busy
-                    onClicked: pathPickerRoot.pick()
-                }
-                Rectangle {
-                    Layout.fillWidth: true
-                    height: 32
-                    color: panelAlt
-                    border.color: line
-                    radius: 4
-                    Text {
-                        anchors.fill: parent
-                        anchors.leftMargin: 8
-                        anchors.rightMargin: 8
-                        text: path.length > 0 ? path : "No folder selected"
-                        color: path.length > 0 ? muted : faint
-                        font.family: root.mono
-                        font.pixelSize: 11
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideMiddle
-                    }
-                }
-            }
-        }
-    }
 
     RowLayout {
         anchors.fill: parent
@@ -366,6 +128,7 @@ ApplicationWindow {
                     PathPicker {
                         label: "Source folder"
                         path: appController.sourcePath
+                        busy: appController.busy
                         onPick: appController.chooseSourceFolder()
                     }
 
@@ -467,7 +230,19 @@ ApplicationWindow {
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
                     }
-                    CheckBox {
+                    StyledCheckBox {
+                        text: "Skip existing files"
+                        checked: appController.skipExisting
+                        enabled: !appController.busy
+                        onToggled: appController.skipExisting = checked
+                    }
+                    StyledCheckBox {
+                        text: "Generate report after offload"
+                        checked: appController.generateReport
+                        enabled: !appController.busy
+                        onToggled: appController.generateReport = checked
+                    }
+                    StyledCheckBox {
                         text: "Ignore hidden/system files"
                         checked: appController.ignoreHiddenSystem
                         enabled: !appController.busy
@@ -488,6 +263,15 @@ ApplicationWindow {
                         wrapMode: TextArea.Wrap
                         onTextChanged: appController.ignorePatterns = text
                         background: Rectangle { color: panelAlt; border.color: line; radius: 4 }
+                    }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: line }
+                    QuietButton {
+                        Layout.fillWidth: true
+                        text: "Sync Destinations to Source"
+                        enabled: !appController.busy && appController.destinationModel.count > 0 && appController.sourcePath.length > 0
+                        onClicked: appController.syncDestinationPaths()
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Replace last path component of all destinations with source folder name"
                     }
 
                     QuietButton {
@@ -563,6 +347,7 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 text: appController.projectName
                                 enabled: !appController.busy
+                                maximumLength: 256
                                 onTextChanged: appController.projectName = text
                             }
                             FieldLabel { text: "Shoot date" }
@@ -571,6 +356,7 @@ ApplicationWindow {
                                 text: appController.shootDate
                                 placeholderText: "YYYY-MM-DD"
                                 enabled: !appController.busy
+                                maximumLength: 10
                                 onTextChanged: appController.shootDate = text
                             }
                             RowLayout {
@@ -583,6 +369,7 @@ ApplicationWindow {
                                         Layout.fillWidth: true
                                         text: appController.cardName
                                         enabled: !appController.busy
+                                        maximumLength: 64
                                         onTextChanged: appController.cardName = text
                                     }
                                 }
@@ -593,6 +380,7 @@ ApplicationWindow {
                                         Layout.fillWidth: true
                                         text: appController.cameraId
                                         enabled: !appController.busy
+                                        maximumLength: 64
                                         onTextChanged: appController.cameraId = text
                                     }
                                 }

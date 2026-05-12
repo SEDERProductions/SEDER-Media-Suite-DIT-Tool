@@ -31,6 +31,7 @@ pub fn report_txt(report: &OffloadReport) -> String {
         out.push_str(&format!("  Status:   {}\n", status));
         out.push_str(&format!("  Copied:   {}\n", dest.files_copied));
         out.push_str(&format!("  Verified: {}\n", dest.files_verified));
+        out.push_str(&format!("  Skipped:  {}\n", dest.files_skipped));
         out.push_str(&format!("  Failed:   {}\n", dest.files_failed));
         if let Some(ref err) = dest.final_error {
             out.push_str(&format!("  Error:    {}\n", err));
@@ -52,7 +53,7 @@ pub fn report_txt(report: &OffloadReport) -> String {
 
 pub fn report_csv(report: &OffloadReport) -> String {
     let mut out = String::new();
-    out.push_str("destination,path,status,copied,verified,failed,error\n");
+    out.push_str("destination,path,status,copied,verified,skipped,failed,error\n");
     for dest in &report.destination_results {
         let status = match dest.state {
             DestinationState::Complete => "PASS",
@@ -62,12 +63,13 @@ pub fn report_csv(report: &OffloadReport) -> String {
         };
         let error = dest.final_error.as_deref().unwrap_or("");
         out.push_str(&format!(
-            "{},{},{},{},{},{},{}\n",
+            "{},{},{},{},{},{},{},{}\n",
             csv_field(dest.config.label.as_deref().unwrap_or("")),
             csv_field(&dest.config.path.display().to_string()),
             status,
             dest.files_copied,
             dest.files_verified,
+            dest.files_skipped,
             dest.files_failed,
             csv_field(error)
         ));
@@ -84,7 +86,7 @@ pub fn report_mhl(report: &OffloadReport, destination_index: usize) -> Result<St
     out.push_str("<hashlist version=\"2.0\" xmlns=\"urn:ASC:MHL:v2.0\">\n");
     out.push_str("  <generator>\n");
     out.push_str("    <name>SEDER DIT Tool</name>\n");
-    out.push_str("    <version>0.0.1</version>\n");
+    out.push_str(&format!("    <version>{}</version>\n", env!("CARGO_PKG_VERSION")));
     out.push_str(&format!("    <date>{}</date>\n", report.timestamp));
     out.push_str("  </generator>\n");
     out.push_str("  <process>transfer</process>\n");
@@ -177,6 +179,7 @@ mod tests {
                 files_copied: 2,
                 files_verified: 2,
                 files_failed: 0,
+                files_skipped: 0,
                 bytes_copied: 3 * 1024 * 1024,
                 final_error: None,
             }],
@@ -213,7 +216,7 @@ mod tests {
     fn report_csv_has_header() {
         let report = make_test_report();
         let csv = report_csv(&report);
-        assert!(csv.starts_with("destination,path,status"));
+        assert!(csv.starts_with("destination,path,status,copied,verified,skipped,failed,error"));
     }
 
     #[test]

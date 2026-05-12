@@ -24,6 +24,9 @@ pub struct OffloadOptions {
     pub ignore_hidden_system: bool,
     pub ignore_patterns: Vec<String>,
     pub verify_after_copy: bool,
+    pub sync_writes: bool,
+    pub skip_existing: bool,
+    pub generate_report: bool,
 }
 
 impl Default for OffloadOptions {
@@ -32,6 +35,9 @@ impl Default for OffloadOptions {
             ignore_hidden_system: true,
             ignore_patterns: vec![],
             verify_after_copy: true,
+            sync_writes: true,
+            skip_existing: false,
+            generate_report: true,
         }
     }
 }
@@ -76,6 +82,7 @@ pub struct DestinationResult {
     pub files_copied: u64,
     pub files_verified: u64,
     pub files_failed: u64,
+    pub files_skipped: u64,
     pub bytes_copied: u64,
     pub final_error: Option<String>,
 }
@@ -101,6 +108,7 @@ pub struct OffloadProgress {
     pub overall_bytes_total: u64,
     pub current_file: String,
     pub destinations: Vec<DestinationProgress>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

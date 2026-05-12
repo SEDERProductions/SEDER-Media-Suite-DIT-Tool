@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QAtomicInteger>
+#include <QElapsedTimer>
 #include <QStringList>
 
 struct DestinationRequest {
@@ -19,6 +20,9 @@ struct OffloadRequestData {
     QString ignorePatterns;
     bool ignoreHiddenSystem = true;
     bool verifyAfterCopy = true;
+    bool syncWrites = true;
+    bool skipExisting = false;
+    bool generateReport = true;
 };
 
 struct DestinationProgressData {
@@ -38,6 +42,7 @@ struct OffloadProgressData {
     uint64_t overallBytesCompleted = 0;
     uint64_t overallBytesTotal = 0;
     QString currentFile;
+    QString warning;
     QVector<DestinationProgressData> destinations;
 };
 
@@ -71,4 +76,5 @@ signals:
 private:
     OffloadRequestData m_request;
     QAtomicInteger<quint8> m_cancelToken{0};
+    QElapsedTimer m_lastProgressEmit;
 };

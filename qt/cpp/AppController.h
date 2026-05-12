@@ -18,6 +18,8 @@ class AppController final : public QObject {
     Q_PROPERTY(QString ignorePatterns READ ignorePatterns WRITE setIgnorePatterns NOTIFY ignorePatternsChanged)
     Q_PROPERTY(bool ignoreHiddenSystem READ ignoreHiddenSystem WRITE setIgnoreHiddenSystem NOTIFY ignoreHiddenSystemChanged)
     Q_PROPERTY(bool verifyAfterCopy READ verifyAfterCopy WRITE setVerifyAfterCopy NOTIFY verifyAfterCopyChanged)
+    Q_PROPERTY(bool skipExisting READ skipExisting WRITE setSkipExisting NOTIFY skipExistingChanged)
+    Q_PROPERTY(bool generateReport READ generateReport WRITE setGenerateReport NOTIFY generateReportChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(double overallProgress READ overallProgress NOTIFY overallProgressChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
@@ -49,6 +51,10 @@ public:
     void setIgnoreHiddenSystem(bool value);
     bool verifyAfterCopy() const;
     void setVerifyAfterCopy(bool value);
+    bool skipExisting() const;
+    void setSkipExisting(bool value);
+    bool generateReport() const;
+    void setGenerateReport(bool value);
     bool busy() const;
     double overallProgress() const;
     QString statusText() const;
@@ -62,6 +68,7 @@ public:
 
     Q_INVOKABLE void chooseSourceFolder();
     Q_INVOKABLE void addDestinationFolder();
+    Q_INVOKABLE void syncDestinationPaths();
     Q_INVOKABLE void removeDestination(int index);
     Q_INVOKABLE void startOffload();
     Q_INVOKABLE void cancelOffload();
@@ -81,6 +88,8 @@ signals:
     void ignorePatternsChanged();
     void ignoreHiddenSystemChanged();
     void verifyAfterCopyChanged();
+    void skipExistingChanged();
+    void generateReportChanged();
     void busyChanged();
     void overallProgressChanged();
     void statusTextChanged();
@@ -113,6 +122,8 @@ private:
     QString m_ignorePatterns = QStringLiteral(".DS_Store, Thumbs.db, desktop.ini, .Spotlight-V100, .Trashes");
     bool m_ignoreHiddenSystem = true;
     bool m_verifyAfterCopy = true;
+    bool m_skipExisting = false;
+    bool m_generateReport = true;
     bool m_busy = false;
     double m_overallProgress = 0.0;
     QString m_statusText = QStringLiteral("Ready for offload.");

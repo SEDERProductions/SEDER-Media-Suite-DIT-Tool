@@ -1,6 +1,7 @@
 #include "AppController.h"
 
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QClipboard>
 #include <QDateTime>
@@ -45,6 +46,10 @@ bool AppController::ignoreHiddenSystem() const { return m_ignoreHiddenSystem; }
 void AppController::setIgnoreHiddenSystem(bool value) { if (m_ignoreHiddenSystem != value) { m_ignoreHiddenSystem = value; emit ignoreHiddenSystemChanged(); } }
 bool AppController::verifyAfterCopy() const { return m_verifyAfterCopy; }
 void AppController::setVerifyAfterCopy(bool value) { if (m_verifyAfterCopy != value) { m_verifyAfterCopy = value; emit verifyAfterCopyChanged(); } }
+bool AppController::skipExisting() const { return m_skipExisting; }
+void AppController::setSkipExisting(bool value) { if (m_skipExisting != value) { m_skipExisting = value; emit skipExistingChanged(); } }
+bool AppController::generateReport() const { return m_generateReport; }
+void AppController::setGenerateReport(bool value) { if (m_generateReport != value) { m_generateReport = value; emit generateReportChanged(); } }
 bool AppController::busy() const { return m_busy; }
 double AppController::overallProgress() const { return m_overallProgress; }
 QString AppController::statusText() const { return m_statusText; }
@@ -69,6 +74,21 @@ void AppController::addDestinationFolder()
     const QString path = QFileDialog::getExistingDirectory(nullptr, tr("Choose Destination Folder"), QString());
     if (!path.isEmpty()) {
         m_destinationModel->addDestination(path);
+    }
+}
+
+void AppController::syncDestinationPaths()
+{
+    if (m_sourcePath.isEmpty() || m_destinationModel->count() == 0) return;
+    const QString newTail = QFileInfo(m_sourcePath).fileName();
+    if (newTail.isEmpty()) return;
+    for (auto *item : m_destinationModel->items()) {
+        const QFileInfo fi(item->path());
+        const QString parent = fi.absolutePath();
+        const QString newPath = parent + QDir::separator() + newTail;
+        if (newPath != item->path()) {
+            item->setPath(newPath);
+        }
     }
 }
 
@@ -110,6 +130,8 @@ void AppController::startOffload()
     request.ignorePatterns = m_ignorePatterns;
     request.ignoreHiddenSystem = m_ignoreHiddenSystem;
     request.verifyAfterCopy = m_verifyAfterCopy;
+    request.skipExisting = m_skipExisting;
+    request.generateReport = m_generateReport;
 
     setBusy(true);
     setOverallProgress(0.0);
@@ -150,6 +172,10 @@ void AppController::startOffload()
             setStatusText(QStringLiteral("Copying files..."));
         }
         setCurrentFile(update.currentFile);
+        // Handle warnings from the engine
+        if (!update.warning.isEmpty()) {
+            appendLog(update.warning, LogSeverity::Warn);
+        }
         if (isScanningPhase) {
             if (update.overallFilesTotal > 0) {
                 setOverallProgress(static_cast<double>(update.overallFilesCompleted) / static_cast<double>(update.overallFilesTotal));
@@ -186,9 +212,8 @@ void AppController::startOffload()
         m_totalSize = report.totalSize;
         m_txtExport = report.txtExport;
         m_csvExport = report.csvExport;
-        m_canExportMhl = report.checksumVerified;
-        m_mhlExport = report.checksumVerified ? report.mhlExport : QString();
         m_canExport = true;
+        m_mhlExport = request.verifyAfterCopy ? report.mhlExport : QString();
         m_canExportMhl = request.verifyAfterCopy && !m_mhlExport.trimmed().isEmpty();
         emit exportStateChanged();
         emit canExportMhlChanged();
@@ -219,10 +244,11 @@ void AppController::startOffload()
 
 void AppController::cancelOffload()
 {
-    if (m_activeWorker) {
-        m_activeWorker->cancel();
-        appendLog(QStringLiteral("Cancelling offload..."), LogSeverity::Warn);
+    if (!m_busy || !m_activeWorker) {
+        return;
     }
+    m_activeWorker->cancel();
+    appendLog(QStringLiteral("Cancelling offload..."), LogSeverity::Warn);
 }
 
 void AppController::exportTxt()

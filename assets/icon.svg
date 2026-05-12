@@ -1,5 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="SEDER Media Suite DIT Tool icon">
-  <rect x="10" y="10" width="76" height="76" rx="10" fill="#fbfaf7" stroke="#171717" stroke-width="2"/>
-  <rect x="18" y="60" width="18" height="18" rx="3" fill="#28664f"/>
-  <path d="M28 31h20l7 8h13v30H28zM35 52l8 8 18-20" fill="none" stroke="#171717" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 96 96" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;">
+    <g transform="matrix(1.210526,0,0,1.210526,-10.105263,-10.105263)">
+        <path d="M86,18.261L86,77.739C86,82.298 82.298,86 77.739,86L18.261,86C13.702,86 10,82.298 10,77.739L10,18.261C10,13.702 13.702,10 18.261,10L77.739,10C82.298,10 86,13.702 86,18.261Z" style="fill:rgb(251,250,247);stroke:rgb(23,23,23);stroke-width:2px;"/>
+    </g>
+    <g transform="matrix(1,0,0,1,-11,11)">
+        <path d="M36,63L36,75C36,76.656 34.656,78 33,78L21,78C19.344,78 18,76.656 18,75L18,63C18,61.344 19.344,60 21,60L33,60C34.656,60 36,61.344 36,63Z" style="fill:rgb(40,102,79);"/>
+    </g>
+    <g transform="matrix(1.75,0,0,1.578947,-35,-26.947368)">
+        <path d="M28,31L48,31L55,39L68,39L68,69L28,69L28,31ZM35,52L43,60L61,40" style="fill:none;fill-rule:nonzero;stroke:rgb(23,23,23);stroke-width:3px;stroke-linecap:round;stroke-linejoin:round;"/>
+    </g>
 </svg>

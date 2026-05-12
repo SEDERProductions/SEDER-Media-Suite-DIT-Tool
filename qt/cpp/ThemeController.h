@@ -22,6 +22,7 @@ private:
     void load();
     void save();
     void updateDark();
+    void applyPalette();
 
     QString m_preference = QStringLiteral("system");
     bool m_dark = false;

@@ -22,7 +22,6 @@ void DestinationItem::setState(int value) {
 
 double DestinationItem::progress() const { return m_progress; }
 void DestinationItem::setProgress(double value) {
-    if (qFuzzyCompare(m_progress, value)) return;
     m_progress = value;
     emit progressChanged();
 }

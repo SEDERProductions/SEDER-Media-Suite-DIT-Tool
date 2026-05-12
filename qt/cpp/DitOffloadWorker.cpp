@@ -8,6 +8,7 @@ DitOffloadWorker::DitOffloadWorker(OffloadRequestData request, QObject *parent)
     : QObject(parent)
     , m_request(std::move(request))
 {
+    m_lastProgressEmit.invalidate();
 }
 
 void DitOffloadWorker::cancel()
@@ -20,6 +21,12 @@ static void progressCallback(const SederOffloadProgress *progress, void *userDat
     auto *worker = static_cast<DitOffloadWorker *>(userData);
     if (!progress) return;
 
+    // Throttle progress updates to ~25 Hz
+    if (worker->m_lastProgressEmit.isValid() && worker->m_lastProgressEmit.elapsed() < 40) {
+        return;
+    }
+    worker->m_lastProgressEmit.start();
+
     OffloadProgressData data;
     data.phase = QString::fromUtf8(progress->phase);
     data.overallFilesCompleted = progress->overall_files_completed;
@@ -27,6 +34,7 @@ static void progressCallback(const SederOffloadProgress *progress, void *userDat
     data.overallBytesCompleted = progress->overall_bytes_completed;
     data.overallBytesTotal = progress->overall_bytes_total;
     data.currentFile = QString::fromUtf8(progress->current_file);
+    data.warning = progress->warning ? QString::fromUtf8(progress->warning) : QString();
 
     for (size_t i = 0; i < progress->destination_count; ++i) {
         const SederDestinationProgress &dp = progress->destinations[i];
@@ -79,6 +87,9 @@ void DitOffloadWorker::run()
     req.ignore_patterns = ignorePatterns.constData();
     req.ignore_hidden_system = m_request.ignoreHiddenSystem ? 1 : 0;
     req.verify_after_copy = m_request.verifyAfterCopy ? 1 : 0;
+    req.sync_writes = m_request.syncWrites ? 1 : 0;
+    req.skip_existing = m_request.skipExisting ? 1 : 0;
+    req.generate_report = m_request.generateReport ? 1 : 0;
     req.cancel_token = reinterpret_cast<uint8_t *>(&m_cancelToken);
 
     char *errorOut = nullptr;

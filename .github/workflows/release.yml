@@ -60,7 +60,6 @@ jobs:
           git add Cargo.toml Cargo.lock
           git commit -m "chore: bump version to ${NEW_TAG}"
           git tag "$NEW_TAG"
-          git push origin HEAD:main
           git push origin "$NEW_TAG"
 
   build:
@@ -127,7 +126,9 @@ jobs:
 
       - name: Install macOS build packages
         if: runner.os == 'macOS'
-        run: brew install ninja
+        run: |
+          brew install ninja
+          brew install imagemagick
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -139,9 +140,13 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          curl -L \
+          curl -L --fail \
             -o "$RUNNER_TEMP/linuxdeployqt.AppImage" \
             "https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage"
+          file "$RUNNER_TEMP/linuxdeployqt.AppImage" | grep -q "ELF" || {
+            echo "ERROR: downloaded file is not an ELF binary"
+            exit 1
+          }
           chmod +x "$RUNNER_TEMP/linuxdeployqt.AppImage"
           echo "LINUXDEPLOYQT=$RUNNER_TEMP/linuxdeployqt.AppImage" >> "$GITHUB_ENV"
           echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
