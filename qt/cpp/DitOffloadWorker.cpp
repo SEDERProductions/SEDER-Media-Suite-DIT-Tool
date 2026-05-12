@@ -16,7 +16,7 @@ void DitOffloadWorker::cancel()
     m_cancelToken.storeRelaxed(1);
 }
 
-static void progressCallback(const SederOffloadProgress *progress, void *userData)
+void DitOffloadWorker::progressTrampoline(const SederOffloadProgress *progress, void *userData)
 {
     auto *worker = static_cast<DitOffloadWorker *>(userData);
     if (!progress) return;
@@ -93,7 +93,7 @@ void DitOffloadWorker::run()
     req.cancel_token = reinterpret_cast<uint8_t *>(&m_cancelToken);
 
     char *errorOut = nullptr;
-    OffloadReportHandle *handle = seder_offload_start(&req, progressCallback, this, &errorOut);
+    OffloadReportHandle *handle = seder_offload_start(&req, &DitOffloadWorker::progressTrampoline, this, &errorOut);
 
     if (!handle) {
         if (m_cancelToken.loadRelaxed() != 0) {

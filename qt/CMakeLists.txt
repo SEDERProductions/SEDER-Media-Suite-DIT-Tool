@@ -20,9 +20,9 @@ if(BUILD_TESTING)
     list(APPEND SEDER_QT_COMPONENTS Test)
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS ${SEDER_QT_COMPONENTS})
+find_package(Qt6 6.4 REQUIRED COMPONENTS ${SEDER_QT_COMPONENTS})
 
-qt_standard_project_setup(REQUIRES 6.5)
+qt_standard_project_setup(REQUIRES 6.4)
 
 set(RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/rust-target")
 set(RUST_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/../Cargo.toml")
@@ -185,11 +185,19 @@ install(TARGETS seder-media-suite-dit-qt
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-qt_generate_deploy_qml_app_script(
-    TARGET seder-media-suite-dit-qt
-    OUTPUT_SCRIPT seder_deploy_script
-    NO_UNSUPPORTED_PLATFORM_ERROR
-)
+if(Qt6_VERSION VERSION_GREATER_EQUAL "6.5.0")
+    qt_generate_deploy_qml_app_script(
+        TARGET seder-media-suite-dit-qt
+        OUTPUT_SCRIPT seder_deploy_script
+        NO_UNSUPPORTED_PLATFORM_ERROR
+    )
+else()
+    qt_generate_deploy_qml_app_script(
+        TARGET seder-media-suite-dit-qt
+        FILENAME_VARIABLE seder_deploy_script
+        NO_UNSUPPORTED_PLATFORM_ERROR
+    )
+endif()
 install(SCRIPT ${seder_deploy_script})
 
 if(BUILD_TESTING)

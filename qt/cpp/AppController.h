@@ -144,4 +144,5 @@ private:
     QString m_txtExport;
     QString m_csvExport;
     QString m_mhlExport;
+    QVector<quint64> m_prevDestFilesCompleted;
 };
