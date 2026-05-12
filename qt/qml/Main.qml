@@ -530,9 +530,10 @@ ApplicationWindow {
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: 16
-                    spacing: 0
+                    spacing: 12
+
                     Rectangle {
-                        visible: !appController.busy && !appController.canExport
+                        visible: appController.logLines.length === 0 && !appController.busy && !appController.canExport
                         Layout.alignment: Qt.AlignCenter
                         Layout.preferredWidth: 480
                         Layout.preferredHeight: 220
@@ -571,117 +572,128 @@ ApplicationWindow {
                             }
                         }
                     }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: appController.logLines.length > 0 || appController.busy
+                        spacing: 8
+                        MetaLabel { text: "Activity Log" }
+                        Item { Layout.fillWidth: true }
+                        Text {
+                            text: appController.logLines.length + " entries"
+                            color: faint
+                            font.family: root.mono
+                            font.pixelSize: 10
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: appController.logLines.length > 0 || appController.busy
+                        color: panel
+                        border.color: line
+                        radius: 2
+                        ListView {
+                            id: logListView
+                            anchors.fill: parent
+                            anchors.margins: 8
+                            clip: true
+                            model: appController.logLines
+                            spacing: 2
+                            onCountChanged: {
+                                if (root.logAutoScrollEnabled && count > 0) {
+                                    positionViewAtEnd()
+                                }
+                            }
+                            onContentYChanged: {
+                                const atBottom = (contentY + height) >= (contentHeight - 8)
+                                if (!appController.busy) {
+                                    root.logAutoScrollEnabled = true
+                                } else {
+                                    root.logAutoScrollEnabled = atBottom
+                                }
+                            }
+                            delegate: RowLayout {
+                                width: ListView.view.width
+                                spacing: 8
+                                property string severity: root.logSeverity(modelData)
+                                property color sevColor: severity === "ERROR" ? bad : (severity === "WARN" ? warn : muted)
+                                Text {
+                                    text: severity === "ERROR" ? "⛔" : (severity === "WARN" ? "⚠" : "•")
+                                    color: parent.sevColor
+                                    font.family: root.sans
+                                    font.pixelSize: 11
+                                }
+                                Text {
+                                    text: root.logTimestamp(modelData)
+                                    color: faint
+                                    font.family: root.mono
+                                    font.pixelSize: 11
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: root.logMessage(modelData)
+                                    color: parent.sevColor
+                                    font.family: root.mono
+                                    font.pixelSize: 11
+                                    elide: Text.ElideRight
+                                }
+                            }
+                            ScrollBar.vertical: ScrollBar {}
+                        }
+                    }
                 }
             }
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 128
+                Layout.preferredHeight: 56
                 color: panel
                 border.color: line
-                ColumnLayout {
+                RowLayout {
                     anchors.fill: parent
-                    anchors.margins: 12
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
                     spacing: 8
-                    RowLayout {
-                        Layout.fillWidth: true
-                        MetaLabel { text: appController.busy ? "Working" : "Status" }
-                        Text {
-                            Layout.fillWidth: true
-                            text: appController.statusText
-                            color: muted
-                            font.family: root.sans
-                            font.pixelSize: 12
-                            elide: Text.ElideRight
-                        }
-                        StyledProgressBar {
-                            Layout.preferredWidth: 180
-                            from: 0
-                            to: 1
-                            value: appController.overallProgress
-                            indeterminate: appController.busy && appController.statusText === "Scanning source..." && appController.overallProgress <= 0
-                            visible: appController.busy || appController.overallProgress > 0
-                        }
-                        StyledComboBox {
-                            Layout.preferredWidth: 70
-                            model: ["Auto", "Light", "Dark"]
-                            currentIndex: themeController.preference === "dark" ? 2 : (themeController.preference === "light" ? 1 : 0)
-                            onActivated: {
-                                const map = ["system", "light", "dark"]
-                                themeController.preference = map[index]
-                            }
-                            font.pixelSize: 10
-                        }
-                        QuietButton {
-                            text: "Copy Log"
-                            enabled: appController.logLines.length > 0
-                            onClicked: appController.copyLog()
-                        }
-                        QuietButton {
-                            text: "Clear Log"
-                            enabled: appController.logLines.length > 0
-                            onClicked: appController.clearLog()
-                        }
-                    }
+                    MetaLabel { text: appController.busy ? "Working" : "Status" }
                     Text {
-                        text: appController.statusText === "Scanning source..."
-                              ? "Indexing source files and checksums..."
-                              : appController.currentFile
-                        color: faint
-                        font.family: root.mono
-                        font.pixelSize: 10
+                        Layout.fillWidth: true
+                        text: appController.busy && appController.currentFile.length > 0
+                              ? appController.statusText + " — " + appController.currentFile
+                              : appController.statusText
+                        color: muted
+                        font.family: root.sans
+                        font.pixelSize: 12
                         elide: Text.ElideMiddle
-                        Layout.fillWidth: true
-                        visible: appController.busy && (appController.currentFile.length > 0 || appController.statusText === "Scanning source...")
                     }
-                    Rectangle { Layout.fillWidth: true; height: 1; color: line }
-                    ListView {
-                        id: logListView
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
-                        model: appController.logLines
-                        spacing: 2
-                        onCountChanged: {
-                            if (root.logAutoScrollEnabled && count > 0) {
-                                positionViewAtEnd()
-                            }
+                    StyledProgressBar {
+                        Layout.preferredWidth: 180
+                        from: 0
+                        to: 1
+                        value: appController.overallProgress
+                        indeterminate: appController.busy && appController.statusText === "Scanning source..." && appController.overallProgress <= 0
+                        visible: appController.busy || appController.overallProgress > 0
+                    }
+                    StyledComboBox {
+                        Layout.preferredWidth: 70
+                        model: ["Auto", "Light", "Dark"]
+                        currentIndex: themeController.preference === "dark" ? 2 : (themeController.preference === "light" ? 1 : 0)
+                        onActivated: {
+                            const map = ["system", "light", "dark"]
+                            themeController.preference = map[index]
                         }
-                        onContentYChanged: {
-                            const atBottom = (contentY + height) >= (contentHeight - 8)
-                            if (!appController.busy) {
-                                root.logAutoScrollEnabled = true
-                            } else {
-                                root.logAutoScrollEnabled = atBottom
-                            }
-                        }
-                        delegate: RowLayout {
-                            width: ListView.view.width
-                            spacing: 8
-                            property string severity: root.logSeverity(modelData)
-                            property color sevColor: severity === "ERROR" ? bad : (severity === "WARN" ? warn : muted)
-                            Text {
-                                text: severity === "ERROR" ? "⛔" : (severity === "WARN" ? "⚠" : "•")
-                                color: parent.sevColor
-                                font.family: root.sans
-                                font.pixelSize: 10
-                            }
-                            Text {
-                                text: root.logTimestamp(modelData)
-                                color: faint
-                                font.family: root.mono
-                                font.pixelSize: 10
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: root.logMessage(modelData)
-                                color: parent.sevColor
-                                font.family: root.mono
-                                font.pixelSize: 10
-                                elide: Text.ElideRight
-                            }
-                        }
-                        ScrollBar.vertical: ScrollBar {}
+                        font.pixelSize: 10
+                    }
+                    QuietButton {
+                        text: "Copy Log"
+                        enabled: appController.logLines.length > 0
+                        onClicked: appController.copyLog()
+                    }
+                    QuietButton {
+                        text: "Clear Log"
+                        enabled: appController.logLines.length > 0
+                        onClicked: appController.clearLog()
                     }
                 }
             }
