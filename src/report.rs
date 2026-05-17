@@ -62,7 +62,9 @@ pub fn report_txt(report: &OffloadReport) -> String {
 
 pub fn report_csv(report: &OffloadReport) -> String {
     let mut out = String::new();
-    out.push_str("destination,path,verification_mode,status,copied,verified,skipped,failed,error\n");
+    out.push_str(
+        "destination,path,verification_mode,status,copied,verified,skipped,failed,error\n",
+    );
     for dest in &report.destination_results {
         let status = match dest.state {
             DestinationState::Complete if report.verification_performed => "PASS",
@@ -102,7 +104,10 @@ pub fn report_mhl(report: &OffloadReport, destination_index: usize) -> Result<St
     out.push_str("<hashlist version=\"2.0\" xmlns=\"urn:ASC:MHL:v2.0\">\n");
     out.push_str("  <generator>\n");
     out.push_str("    <name>SEDER DIT Tool</name>\n");
-    out.push_str(&format!("    <version>{}</version>\n", env!("CARGO_PKG_VERSION")));
+    out.push_str(&format!(
+        "    <version>{}</version>\n",
+        env!("CARGO_PKG_VERSION")
+    ));
     out.push_str(&format!("    <date>{}</date>\n", report.timestamp));
     out.push_str("  </generator>\n");
     out.push_str("  <process>transfer</process>\n");
@@ -233,7 +238,9 @@ mod tests {
     fn report_csv_has_header() {
         let report = make_test_report();
         let csv = report_csv(&report);
-        assert!(csv.starts_with("destination,path,verification_mode,status,copied,verified,skipped,failed,error"));
+        assert!(csv.starts_with(
+            "destination,path,verification_mode,status,copied,verified,skipped,failed,error"
+        ));
     }
 
     #[test]

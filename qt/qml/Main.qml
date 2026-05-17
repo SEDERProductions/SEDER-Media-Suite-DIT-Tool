@@ -105,9 +105,10 @@ ApplicationWindow {
                 anchors.fill: parent
                 clip: true
                 ColumnLayout {
-                    width: parent.width
+                    x: 16
+                    y: 16
+                    width: parent.width - 32
                     spacing: 14
-                    anchors.margins: 16
 
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -396,6 +397,8 @@ ApplicationWindow {
                             }
                         }
                     }
+
+                    Item { Layout.fillWidth: true; Layout.preferredHeight: 16 }
                 }
             }
         }
@@ -662,8 +665,8 @@ ApplicationWindow {
                 border.color: line
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
+                    anchors.leftMargin: 16
+                    anchors.rightMargin: 16
                     spacing: 8
                     MetaLabel { text: appController.busy ? "Working" : "Status" }
                     Text {
