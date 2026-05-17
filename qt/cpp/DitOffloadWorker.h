@@ -47,6 +47,14 @@ struct OffloadProgressData {
     QVector<DestinationProgressData> destinations;
 };
 
+struct DestinationFinalCounts {
+    uint32_t state = 0;
+    uint64_t filesCopied = 0;
+    uint64_t filesVerified = 0;
+    uint64_t filesFailed = 0;
+    uint64_t filesSkipped = 0;
+};
+
 struct FinalReportData {
     QString txtExport;
     QString csvExport;
@@ -58,6 +66,7 @@ struct FinalReportData {
     bool verificationPerformed = false;
     QString finalStatus;
     QVector<uint32_t> destinationStates;
+    QVector<DestinationFinalCounts> destinationCounts;
 };
 
 class DitOffloadWorker final : public QObject {
