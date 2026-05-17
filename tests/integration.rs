@@ -94,9 +94,18 @@ fn full_offload_pipeline_multiple_destinations() {
     let cancel = Arc::new(AtomicBool::new(false));
     let mut warnings = Vec::new();
 
-    let results =
-        offload_files(&src, &scan, &dests, false, &cancel, &mut |_| {}, false, false, &mut warnings)
-            .unwrap();
+    let results = offload_files(
+        &src,
+        &scan,
+        &dests,
+        false,
+        &cancel,
+        &mut |_| {},
+        false,
+        false,
+        &mut warnings,
+    )
+    .unwrap();
 
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].state, DestinationState::Complete);
@@ -131,9 +140,18 @@ fn offload_cancel_during_copy() {
     let cancel = Arc::new(AtomicBool::new(true)); // pre-cancelled
     let mut warnings = Vec::new();
 
-    let results =
-        offload_files(&src, &scan, &dests, false, &cancel, &mut |_| {}, false, false, &mut warnings)
-            .unwrap();
+    let results = offload_files(
+        &src,
+        &scan,
+        &dests,
+        false,
+        &cancel,
+        &mut |_| {},
+        false,
+        false,
+        &mut warnings,
+    )
+    .unwrap();
 
     // All destinations should be cancelled
     for r in &results {
@@ -183,9 +201,18 @@ fn report_txt_contains_all_destinations() {
     let cancel = Arc::new(AtomicBool::new(false));
     let mut warnings = Vec::new();
 
-    let results =
-        offload_files(&src, &scan, &dests, true, &cancel, &mut |_| {}, false, false, &mut warnings)
-            .unwrap();
+    let results = offload_files(
+        &src,
+        &scan,
+        &dests,
+        true,
+        &cancel,
+        &mut |_| {},
+        false,
+        false,
+        &mut warnings,
+    )
+    .unwrap();
 
     let report = OffloadReport {
         source_path: src.to_string_lossy().replace('\\', "/"),
@@ -232,9 +259,18 @@ fn verify_failure_detected() {
     let mut warnings = Vec::new();
 
     // Copy then corrupt the destination
-    let results =
-        offload_files(&src, &scan, &dests, true, &cancel, &mut |_| {}, false, false, &mut warnings)
-            .unwrap();
+    let results = offload_files(
+        &src,
+        &scan,
+        &dests,
+        true,
+        &cancel,
+        &mut |_| {},
+        false,
+        false,
+        &mut warnings,
+    )
+    .unwrap();
 
     // Should have copied and verified successfully since we didn't corrupt it
     assert_eq!(results[0].files_verified, 1);

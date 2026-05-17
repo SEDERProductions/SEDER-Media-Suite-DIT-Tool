@@ -194,8 +194,13 @@ pub fn offload_files(
 
                             if verify {
                                 results[idx].state = DestinationState::Verifying;
-                                let dest_path = destinations[idx].path.join(&file_entry.relative_path);
-                                match verify_file(&dest_path, &file_entry.source_blake3, &mut verify_buf) {
+                                let dest_path =
+                                    destinations[idx].path.join(&file_entry.relative_path);
+                                match verify_file(
+                                    &dest_path,
+                                    &file_entry.source_blake3,
+                                    &mut verify_buf,
+                                ) {
                                     Ok(()) => {
                                         results[idx].files_verified += 1;
                                         dest_file_status[idx] = FileTransferStatus::Verified;
@@ -401,8 +406,7 @@ fn copy_file_fanout(
                 i += 1;
             } else {
                 // This destination disconnected - mark as failed and continue
-                result[dest_idx] =
-                    FileCopyStatus::Failed("Destination writer disconnected".into());
+                result[dest_idx] = FileCopyStatus::Failed("Destination writer disconnected".into());
                 warnings.push(format!(
                     "Destination {} disconnected during copy of {}",
                     dest_idx, relative_path
@@ -482,8 +486,6 @@ fn is_hidden_or_system(path: &Path) -> bool {
     }
     false
 }
-
-
 
 #[cfg(test)]
 mod tests {

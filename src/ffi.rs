@@ -174,9 +174,8 @@ pub unsafe extern "C" fn seder_offload_start(
         let mut dest_file_bufs: Vec<CStrBuf> = (0..destination_count)
             .map(|_| CStrBuf::with_capacity(256))
             .collect();
-        let mut dest_err_bufs: Vec<Option<CStrBuf>> = (0..destination_count)
-            .map(|_| None)
-            .collect();
+        let mut dest_err_bufs: Vec<Option<CStrBuf>> =
+            (0..destination_count).map(|_| None).collect();
         let mut dest_progress_vec: Vec<SederDestinationProgress> =
             Vec::with_capacity(destination_count);
 
@@ -505,12 +504,18 @@ pub unsafe extern "C" fn seder_report_dest_state(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn seder_report_verification_performed(handle: *mut OffloadReportHandle) -> u8 {
+pub unsafe extern "C" fn seder_report_verification_performed(
+    handle: *mut OffloadReportHandle,
+) -> u8 {
     if handle.is_null() {
         return 0;
     }
     let report = unsafe { &(*handle).report };
-    if report.verification_performed { 1 } else { 0 }
+    if report.verification_performed {
+        1
+    } else {
+        0
+    }
 }
 
 // ============================================================================
