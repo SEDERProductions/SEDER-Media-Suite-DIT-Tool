@@ -136,11 +136,17 @@ void DitOffloadWorker::run()
 
     report.allPass = true;
     report.destinationStates.reserve(static_cast<int>(destCount));
+    report.destinationCounts.reserve(static_cast<int>(destCount));
     for (size_t i = 0; i < destCount; ++i) {
-        uint32_t state = 0;
-        seder_report_dest_state(handle, i, &state, nullptr, nullptr, nullptr, nullptr);
-        report.destinationStates.append(state);
-        if (state != 4) {
+        DestinationFinalCounts counts;
+        seder_report_dest_counts(
+            handle, i, &counts.state,
+            &counts.filesCopied, &counts.filesVerified,
+            &counts.filesFailed, &counts.filesSkipped,
+            nullptr);
+        report.destinationStates.append(counts.state);
+        report.destinationCounts.append(counts);
+        if (counts.state != 4) {
             report.allPass = false;
         }
     }

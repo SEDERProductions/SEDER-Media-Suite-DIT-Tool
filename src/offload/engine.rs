@@ -256,7 +256,7 @@ pub fn offload_files(
             .map(|(i, r)| DestinationProgress {
                 index: i,
                 state: r.state,
-                files_completed: r.files_copied + r.files_verified + r.files_skipped,
+                files_completed: r.files_copied + r.files_skipped + r.files_failed,
                 files_total: overall_files_total,
                 bytes_completed: r.bytes_copied,
                 bytes_total: overall_bytes_total,
@@ -329,14 +329,27 @@ fn copy_file_fanout(
 
         let dest_path = dest.path.join(relative_path);
         if let Some(parent) = dest_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                result[idx] =
+                    FileCopyStatus::Failed(format!("Create directory {}: {}", parent.display(), e));
+                warnings.push(format!(
+                    "Destination {} failed to create {}: {}",
+                    idx + 1,
+                    parent.display(),
+                    e
+                ));
+                continue;
+            }
         }
 
         if dest_path.is_symlink() {
-            anyhow::bail!(
+            let msg = format!(
                 "Destination path is a symlink, refusing to follow: {}",
                 dest_path.display()
             );
+            result[idx] = FileCopyStatus::Failed(msg.clone());
+            warnings.push(format!("Destination {}: {}", idx + 1, msg));
+            continue;
         }
         if dest_path.exists() {
             let msg = format!("Overwriting existing file: {}", dest_path.display());
@@ -370,7 +383,7 @@ fn copy_file_fanout(
     }
 
     if senders.is_empty() {
-        // All destinations skipped, nothing to copy
+        // No active writers (all destinations either skipped or failed during setup)
         return Ok(result);
     }
 
@@ -409,7 +422,8 @@ fn copy_file_fanout(
                 result[dest_idx] = FileCopyStatus::Failed("Destination writer disconnected".into());
                 warnings.push(format!(
                     "Destination {} disconnected during copy of {}",
-                    dest_idx, relative_path
+                    dest_idx + 1,
+                    relative_path
                 ));
                 // Remove handle for this destination
                 if let Some(pos) = handles.iter().position(|(idx, _)| *idx == dest_idx) {
@@ -431,11 +445,14 @@ fn copy_file_fanout(
             Ok(Ok(hash)) => result[dest_idx] = FileCopyStatus::Copied(hash),
             Ok(Err(e)) => {
                 result[dest_idx] = FileCopyStatus::Failed(format!("Writer error: {}", e));
-                warnings.push(format!("Destination {} writer error: {}", dest_idx, e));
+                warnings.push(format!("Destination {} writer error: {}", dest_idx + 1, e));
             }
             Err(_) => {
                 result[dest_idx] = FileCopyStatus::Failed("Writer thread panicked".into());
-                warnings.push(format!("Destination {} writer thread panicked", dest_idx));
+                warnings.push(format!(
+                    "Destination {} writer thread panicked",
+                    dest_idx + 1
+                ));
             }
         }
     }
