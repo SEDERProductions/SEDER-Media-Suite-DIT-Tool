@@ -323,6 +323,13 @@ void AppController::startOffload()
         setBusy(false);
         setOverallProgress(1.0);
         setPass(report.allPass);
+        for (int i = 0; i < report.destinationStates.size() && i < m_destinationModel->count(); ++i) {
+            auto *item = m_destinationModel->items().at(i);
+            item->setState(static_cast<int>(report.destinationStates.at(i)));
+            if (report.destinationStates.at(i) == 4) {
+                item->setProgress(1.0);
+            }
+        }
         if (report.allPass) {
             const QString mode = report.verificationPerformed
                 ? QStringLiteral("and verified")

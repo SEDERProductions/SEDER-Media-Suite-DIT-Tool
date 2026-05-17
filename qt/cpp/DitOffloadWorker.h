@@ -57,6 +57,7 @@ struct FinalReportData {
     bool checksumVerified = false;
     bool verificationPerformed = false;
     QString finalStatus;
+    QVector<uint32_t> destinationStates;
 };
 
 class DitOffloadWorker final : public QObject {
