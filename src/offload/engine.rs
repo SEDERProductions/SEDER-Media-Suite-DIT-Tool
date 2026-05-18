@@ -2,12 +2,47 @@ use crate::offload::*;
 use crossbeam_channel::{bounded, Sender};
 use globset::{Glob, GlobSetBuilder};
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 const CHUNK_SIZE: usize = 1024 * 1024; // 1 MiB
 const CHANNEL_BOUND: usize = 16;
+
+const IO_RETRY_ATTEMPTS: u32 = 3;
+const IO_RETRY_BASE_DELAY: Duration = Duration::from_millis(50);
+
+fn is_transient_io_error(kind: io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        io::ErrorKind::Interrupted
+            | io::ErrorKind::WouldBlock
+            | io::ErrorKind::TimedOut
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::BrokenPipe
+    )
+}
+
+fn retry_io<T, F>(mut op: F) -> io::Result<T>
+where
+    F: FnMut() -> io::Result<T>,
+{
+    let mut attempt: u32 = 0;
+    loop {
+        match op() {
+            Ok(value) => return Ok(value),
+            Err(err) => {
+                if attempt + 1 >= IO_RETRY_ATTEMPTS || !is_transient_io_error(err.kind()) {
+                    return Err(err);
+                }
+                std::thread::sleep(IO_RETRY_BASE_DELAY * (1u32 << attempt));
+                attempt += 1;
+            }
+        }
+    }
+}
 
 #[derive(Clone)]
 enum ChunkMessage {
@@ -348,21 +383,21 @@ fn copy_file_fanout(
         senders.push((idx, tx));
 
         let handle = std::thread::spawn(move || -> anyhow::Result<String> {
-            let mut file = File::create(&dest_path)
+            let mut file = retry_io(|| File::create(&dest_path))
                 .map_err(|e| anyhow::anyhow!("Create {}: {}", dest_path.display(), e))?;
             let mut hasher = blake3::Hasher::new();
 
             for msg in rx {
                 match msg {
                     ChunkMessage::Data(bytes) => {
-                        file.write_all(&bytes)?;
+                        retry_io(|| file.write_all(&bytes))?;
                         hasher.update(&bytes);
                     }
                     ChunkMessage::End => break,
                 }
             }
             if sync_writes {
-                file.sync_data()?;
+                retry_io(|| file.sync_data())?;
             }
             Ok(hasher.finalize().to_hex().to_string())
         });
@@ -374,7 +409,7 @@ fn copy_file_fanout(
         return Ok(result);
     }
 
-    let mut src_file = File::open(src_path)
+    let mut src_file = retry_io(|| File::open(src_path))
         .map_err(|e| anyhow::anyhow!("Open source {}: {}", src_path.display(), e))?;
 
     let mut buf = vec![0u8; CHUNK_SIZE];
@@ -386,7 +421,7 @@ fn copy_file_fanout(
             return Err(anyhow::anyhow!("Cancelled by user"));
         }
 
-        let n = match src_file.read(&mut buf) {
+        let n = match retry_io(|| src_file.read(&mut buf)) {
             Ok(0) => break,
             Ok(n) => n,
             Err(e) => {
@@ -444,11 +479,11 @@ fn copy_file_fanout(
 }
 
 fn verify_file(dest_path: &Path, expected_blake3: &str, buf: &mut [u8]) -> anyhow::Result<()> {
-    let mut file = File::open(dest_path)?;
+    let mut file = retry_io(|| File::open(dest_path))?;
     let mut hasher = blake3::Hasher::new();
 
     loop {
-        let n = file.read(buf)?;
+        let n = retry_io(|| file.read(buf))?;
         if n == 0 {
             break;
         }
@@ -563,5 +598,68 @@ mod tests {
         let wrong_hash = blake3::hash(b"different data").to_hex().to_string();
         let mut buf = vec![0u8; CHUNK_SIZE];
         assert!(verify_file(&path, &wrong_hash, &mut buf).is_err());
+    }
+
+    #[test]
+    fn retry_io_succeeds_after_transient_interrupted() {
+        use std::cell::Cell;
+        let attempts = Cell::new(0u32);
+        let result: io::Result<u32> = retry_io(|| {
+            let n = attempts.get();
+            attempts.set(n + 1);
+            if n < 2 {
+                Err(io::Error::new(io::ErrorKind::Interrupted, "try again"))
+            } else {
+                Ok(42)
+            }
+        });
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(attempts.get(), 3);
+    }
+
+    #[test]
+    fn retry_io_does_not_retry_non_transient() {
+        use std::cell::Cell;
+        let attempts = Cell::new(0u32);
+        let result: io::Result<()> = retry_io(|| {
+            attempts.set(attempts.get() + 1);
+            Err(io::Error::new(io::ErrorKind::PermissionDenied, "nope"))
+        });
+        assert!(result.is_err());
+        assert_eq!(attempts.get(), 1);
+    }
+
+    #[test]
+    fn retry_io_gives_up_after_max_attempts() {
+        use std::cell::Cell;
+        let attempts = Cell::new(0u32);
+        let result: io::Result<()> = retry_io(|| {
+            attempts.set(attempts.get() + 1);
+            Err(io::Error::new(io::ErrorKind::TimedOut, "still down"))
+        });
+        assert!(result.is_err());
+        assert_eq!(attempts.get(), IO_RETRY_ATTEMPTS);
+    }
+
+    #[test]
+    fn transient_kinds_are_marked_transient() {
+        for k in [
+            io::ErrorKind::Interrupted,
+            io::ErrorKind::WouldBlock,
+            io::ErrorKind::TimedOut,
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::ConnectionAborted,
+            io::ErrorKind::BrokenPipe,
+        ] {
+            assert!(is_transient_io_error(k), "{:?} should be transient", k);
+        }
+        for k in [
+            io::ErrorKind::NotFound,
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::AlreadyExists,
+            io::ErrorKind::InvalidInput,
+        ] {
+            assert!(!is_transient_io_error(k), "{:?} should not be transient", k);
+        }
     }
 }
