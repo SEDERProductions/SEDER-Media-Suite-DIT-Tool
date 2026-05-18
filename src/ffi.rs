@@ -153,6 +153,7 @@ pub unsafe extern "C" fn seder_offload_start(
             sync_writes: req.sync_writes != 0,
             skip_existing: req.skip_existing != 0,
             generate_report: req.generate_report != 0,
+            algorithm: ChecksumAlgo::default(),
         };
 
         let offload_request = OffloadRequest {

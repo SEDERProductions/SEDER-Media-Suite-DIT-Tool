@@ -21,6 +21,7 @@ fn make_options() -> OffloadOptions {
         sync_writes: false,
         skip_existing: false,
         generate_report: true,
+        algorithm: ChecksumAlgo::Blake3,
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::offload::hash::ChecksumAlgo;
 use crate::offload::*;
 use crossbeam_channel::{bounded, Sender};
 use globset::{Glob, GlobSetBuilder};
@@ -124,9 +125,8 @@ pub fn scan_source(
         total_size += size;
         total_files += 1;
 
-        // Compute blake3 hash
         let mut file = File::open(path)?;
-        let mut hasher = blake3::Hasher::new();
+        let mut hasher = options.algorithm.new_hasher();
         loop {
             let n = file.read(&mut buf)?;
             if n == 0 {
@@ -134,12 +134,13 @@ pub fn scan_source(
             }
             hasher.update(&buf[..n]);
         }
-        let hash = hasher.finalize().to_hex().to_string();
+        let hash = hasher.finalize_hex();
 
         files.push(FileEntry {
             relative_path: rel_str,
             size,
-            source_blake3: hash,
+            source_hash: hash,
+            algorithm: options.algorithm,
         });
 
         progress(total_files, total_size);
@@ -210,6 +211,7 @@ pub fn offload_files(
             cancel_flag,
             sync_writes,
             skip_existing,
+            file_entry.algorithm,
             &mut file_warnings,
         );
 
@@ -233,7 +235,8 @@ pub fn offload_files(
                                     destinations[idx].path.join(&file_entry.relative_path);
                                 match verify_file(
                                     &dest_path,
-                                    &file_entry.source_blake3,
+                                    &file_entry.source_hash,
+                                    file_entry.algorithm,
                                     &mut verify_buf,
                                 ) {
                                     Ok(()) => {
@@ -329,6 +332,7 @@ pub fn offload_files(
     Ok(results)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn copy_file_fanout(
     src_path: &Path,
     relative_path: &str,
@@ -336,6 +340,7 @@ fn copy_file_fanout(
     cancel_flag: &AtomicBool,
     sync_writes: bool,
     skip_existing: bool,
+    algorithm: ChecksumAlgo,
     warnings: &mut Vec<String>,
 ) -> anyhow::Result<Vec<FileCopyStatus>> {
     let dest_count = destinations.len();
@@ -385,7 +390,7 @@ fn copy_file_fanout(
         let handle = std::thread::spawn(move || -> anyhow::Result<String> {
             let mut file = retry_io(|| File::create(&dest_path))
                 .map_err(|e| anyhow::anyhow!("Create {}: {}", dest_path.display(), e))?;
-            let mut hasher = blake3::Hasher::new();
+            let mut hasher = algorithm.new_hasher();
 
             for msg in rx {
                 match msg {
@@ -399,7 +404,7 @@ fn copy_file_fanout(
             if sync_writes {
                 retry_io(|| file.sync_data())?;
             }
-            Ok(hasher.finalize().to_hex().to_string())
+            Ok(hasher.finalize_hex())
         });
         handles.push((idx, handle));
     }
@@ -478,9 +483,14 @@ fn copy_file_fanout(
     Ok(result)
 }
 
-fn verify_file(dest_path: &Path, expected_blake3: &str, buf: &mut [u8]) -> anyhow::Result<()> {
+fn verify_file(
+    dest_path: &Path,
+    expected_hash: &str,
+    algorithm: ChecksumAlgo,
+    buf: &mut [u8],
+) -> anyhow::Result<()> {
     let mut file = retry_io(|| File::open(dest_path))?;
-    let mut hasher = blake3::Hasher::new();
+    let mut hasher = algorithm.new_hasher();
 
     loop {
         let n = retry_io(|| file.read(buf))?;
@@ -490,11 +500,12 @@ fn verify_file(dest_path: &Path, expected_blake3: &str, buf: &mut [u8]) -> anyho
         hasher.update(&buf[..n]);
     }
 
-    let actual = hasher.finalize().to_hex().to_string();
-    if actual != expected_blake3 {
+    let actual = hasher.finalize_hex();
+    if actual != expected_hash {
         anyhow::bail!(
-            "Hash mismatch\n  expected: {}\n  actual:   {}",
-            expected_blake3,
+            "{} mismatch\n  expected: {}\n  actual:   {}",
+            algorithm.as_str(),
+            expected_hash,
             actual
         );
     }
@@ -586,7 +597,7 @@ mod tests {
 
         let hash = blake3::hash(data).to_hex().to_string();
         let mut buf = vec![0u8; CHUNK_SIZE];
-        assert!(verify_file(&path, &hash, &mut buf).is_ok());
+        assert!(verify_file(&path, &hash, ChecksumAlgo::Blake3, &mut buf).is_ok());
     }
 
     #[test]
@@ -597,7 +608,20 @@ mod tests {
 
         let wrong_hash = blake3::hash(b"different data").to_hex().to_string();
         let mut buf = vec![0u8; CHUNK_SIZE];
-        assert!(verify_file(&path, &wrong_hash, &mut buf).is_err());
+        assert!(verify_file(&path, &wrong_hash, ChecksumAlgo::Blake3, &mut buf).is_err());
+    }
+
+    #[test]
+    fn verify_file_works_with_md5() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.bin");
+        let data = b"abc";
+        std::fs::write(&path, data).unwrap();
+
+        let mut buf = vec![0u8; CHUNK_SIZE];
+        let md5_abc = "900150983cd24fb0d6963f7d28e17f72";
+        assert!(verify_file(&path, md5_abc, ChecksumAlgo::Md5, &mut buf).is_ok());
+        assert!(verify_file(&path, "deadbeef", ChecksumAlgo::Md5, &mut buf).is_err());
     }
 
     #[test]

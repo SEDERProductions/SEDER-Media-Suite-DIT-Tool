@@ -23,6 +23,9 @@ blake3 = "1.5"
 walkdir = "2.5"
 crossbeam-channel = "0.5"
 globset = "0.4"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+md-5 = "0.10"
+sha1 = "0.10"
 
 [dev-dependencies]
 tempfile = "3.13"

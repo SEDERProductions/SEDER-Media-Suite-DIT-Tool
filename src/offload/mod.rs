@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 
 pub mod engine;
+pub mod hash;
 pub mod volume;
+
+pub use hash::ChecksumAlgo;
 
 #[derive(Debug, Clone)]
 pub struct DestinationConfig {
@@ -25,6 +28,7 @@ pub struct OffloadOptions {
     pub sync_writes: bool,
     pub skip_existing: bool,
     pub generate_report: bool,
+    pub algorithm: ChecksumAlgo,
 }
 
 impl Default for OffloadOptions {
@@ -36,6 +40,7 @@ impl Default for OffloadOptions {
             sync_writes: true,
             skip_existing: false,
             generate_report: true,
+            algorithm: ChecksumAlgo::Blake3,
         }
     }
 }
@@ -63,7 +68,8 @@ pub enum DestinationState {
 pub struct FileEntry {
     pub relative_path: String,
     pub size: u64,
-    pub source_blake3: String,
+    pub source_hash: String,
+    pub algorithm: ChecksumAlgo,
 }
 
 #[derive(Debug, Clone)]

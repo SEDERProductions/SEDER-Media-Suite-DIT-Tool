@@ -114,16 +114,17 @@ pub fn report_mhl(report: &OffloadReport, destination_index: usize) -> Result<St
 
     if report.destination_results.len() > destination_index {
         for file in &report.source_scan.files {
+            let method = file.algorithm.mhl_element_name();
             out.push_str("  <hash>\n");
             out.push_str(&format!(
                 "    <file>{}</file>\n",
                 xml_escape(&file.relative_path)
             ));
             out.push_str(&format!("    <size>{}</size>\n", file.size));
-            out.push_str("    <hashmethod>blake3</hashmethod>\n");
+            out.push_str(&format!("    <hashmethod>{}</hashmethod>\n", method));
             out.push_str(&format!(
                 "    <hashvalue>{}</hashvalue>\n",
-                file.source_blake3
+                file.source_hash
             ));
             out.push_str("  </hash>\n");
         }
@@ -180,12 +181,14 @@ mod tests {
                     FileEntry {
                         relative_path: "clip001.mxf".into(),
                         size: 1024 * 1024,
-                        source_blake3: "abc123hash".into(),
+                        source_hash: "abc123hash".into(),
+                        algorithm: ChecksumAlgo::Blake3,
                     },
                     FileEntry {
                         relative_path: "clip002.mxf".into(),
                         size: 2048 * 1024,
-                        source_blake3: "def456hash".into(),
+                        source_hash: "def456hash".into(),
+                        algorithm: ChecksumAlgo::Blake3,
                     },
                 ],
                 total_size: 3 * 1024 * 1024,
@@ -263,6 +266,22 @@ mod tests {
         let mhl = report_mhl(&report, 0).expect("mhl should be generated");
         assert!(mhl.contains("abc123hash"));
         assert!(mhl.contains("urn:ASC:MHL:v2.0"));
+        assert!(mhl.contains("<hashmethod>blake3</hashmethod>"));
+    }
+
+    #[test]
+    fn report_mhl_uses_per_file_algorithm() {
+        let mut report = make_test_report();
+        report.source_scan.files[0].algorithm = ChecksumAlgo::Md5;
+        report.source_scan.files[0].source_hash = "900150983cd24fb0d6963f7d28e17f72".into();
+        report.source_scan.files[1].algorithm = ChecksumAlgo::Xxh3_64;
+        report.source_scan.files[1].source_hash = "abcdefabcdef0123".into();
+
+        let mhl = report_mhl(&report, 0).expect("mhl should be generated");
+        assert!(mhl.contains("<hashmethod>md5</hashmethod>"));
+        assert!(mhl.contains("<hashmethod>xxh3</hashmethod>"));
+        assert!(mhl.contains("900150983cd24fb0d6963f7d28e17f72"));
+        assert!(mhl.contains("abcdefabcdef0123"));
     }
 
     #[test]
