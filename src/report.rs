@@ -1,3 +1,4 @@
+use crate::offload::media::FormatBreakdown;
 use crate::offload::{DestinationState, OffloadReport};
 
 pub fn report_txt(report: &OffloadReport) -> String {
@@ -20,9 +21,36 @@ pub fn report_txt(report: &OffloadReport) -> String {
     ));
     out.push_str(&format!("Files:     {}\n", report.source_scan.total_files));
     out.push_str(&format!(
-        "Size:      {}\n\n",
+        "Size:      {}\n",
         format_bytes(report.source_scan.total_size)
     ));
+
+    let breakdown = FormatBreakdown::from_files(
+        report
+            .source_scan
+            .files
+            .iter()
+            .map(|f| (f.relative_path.clone(), f.size)),
+    );
+    if !breakdown.is_empty() {
+        out.push_str("\nFormat breakdown:\n");
+        for (kind, count, bytes) in &breakdown.entries {
+            out.push_str(&format!(
+                "  {:<10} {:>6} file(s)   {}\n",
+                kind.as_str(),
+                count,
+                format_bytes(*bytes)
+            ));
+        }
+    }
+
+    if !report.source_scan.ignored_paths.is_empty() {
+        out.push_str(&format!(
+            "\nIgnored:   {} file(s) skipped by ignore rules\n",
+            report.source_scan.ignored_paths.len()
+        ));
+    }
+    out.push('\n');
 
     for (idx, dest) in report.destination_results.iter().enumerate() {
         out.push_str(&format!(
@@ -102,6 +130,43 @@ pub fn report_mhl(report: &OffloadReport, destination_index: usize) -> Result<St
     let mut out = String::new();
     out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     out.push_str("<hashlist version=\"2.0\" xmlns=\"urn:ASC:MHL:v2.0\">\n");
+    out.push_str("  <creatorinfo>\n");
+    out.push_str("    <tool>\n");
+    out.push_str("      <name>SEDER DIT Tool</name>\n");
+    out.push_str(&format!(
+        "      <version>{}</version>\n",
+        env!("CARGO_PKG_VERSION")
+    ));
+    out.push_str("    </tool>\n");
+    out.push_str(&format!(
+        "    <creationdate>{}</creationdate>\n",
+        xml_escape(&report.timestamp)
+    ));
+    if !report.metadata.project_name.is_empty() {
+        out.push_str(&format!(
+            "    <project>{}</project>\n",
+            xml_escape(&report.metadata.project_name)
+        ));
+    }
+    if !report.metadata.shoot_date.is_empty() {
+        out.push_str(&format!(
+            "    <shootdate>{}</shootdate>\n",
+            xml_escape(&report.metadata.shoot_date)
+        ));
+    }
+    if !report.metadata.card_name.is_empty() {
+        out.push_str(&format!(
+            "    <cardname>{}</cardname>\n",
+            xml_escape(&report.metadata.card_name)
+        ));
+    }
+    if !report.metadata.camera_id.is_empty() {
+        out.push_str(&format!(
+            "    <camera>{}</camera>\n",
+            xml_escape(&report.metadata.camera_id)
+        ));
+    }
+    out.push_str("  </creatorinfo>\n");
     out.push_str("  <generator>\n");
     out.push_str("    <name>SEDER DIT Tool</name>\n");
     out.push_str(&format!(
@@ -128,6 +193,14 @@ pub fn report_mhl(report: &OffloadReport, destination_index: usize) -> Result<St
             ));
             out.push_str("  </hash>\n");
         }
+    }
+
+    if !report.source_scan.ignored_paths.is_empty() {
+        out.push_str("  <ignored>\n");
+        for path in &report.source_scan.ignored_paths {
+            out.push_str(&format!("    <path>{}</path>\n", xml_escape(path)));
+        }
+        out.push_str("  </ignored>\n");
     }
 
     out.push_str("</hashlist>\n");
@@ -193,6 +266,7 @@ mod tests {
                 ],
                 total_size: 3 * 1024 * 1024,
                 total_files: 2,
+                ignored_paths: vec![],
             },
             destination_results: vec![DestinationResult {
                 config: DestinationConfig {
@@ -267,6 +341,58 @@ mod tests {
         assert!(mhl.contains("abc123hash"));
         assert!(mhl.contains("urn:ASC:MHL:v2.0"));
         assert!(mhl.contains("<hashmethod>blake3</hashmethod>"));
+    }
+
+    #[test]
+    fn report_mhl_emits_creatorinfo_with_project_metadata() {
+        let report = make_test_report();
+        let mhl = report_mhl(&report, 0).expect("mhl should be generated");
+        assert!(mhl.contains("<creatorinfo>"));
+        assert!(mhl.contains("<name>SEDER DIT Tool</name>"));
+        assert!(mhl.contains("<project>Test Project</project>"));
+        assert!(mhl.contains("<shootdate>2026-05-04</shootdate>"));
+        assert!(mhl.contains("<cardname>A001</cardname>"));
+        assert!(mhl.contains("<camera>CAM-001</camera>"));
+    }
+
+    #[test]
+    fn report_mhl_emits_ignored_block_when_files_were_skipped() {
+        let mut report = make_test_report();
+        report.source_scan.ignored_paths = vec![
+            ".DS_Store".into(),
+            "Thumbs.db".into(),
+            "sub/<weird>.txt".into(),
+        ];
+        let mhl = report_mhl(&report, 0).expect("mhl should be generated");
+        assert!(mhl.contains("<ignored>"));
+        assert!(mhl.contains("<path>.DS_Store</path>"));
+        assert!(mhl.contains("<path>Thumbs.db</path>"));
+        // XML escape on the weird path
+        assert!(mhl.contains("&lt;weird&gt;"));
+    }
+
+    #[test]
+    fn report_mhl_omits_ignored_block_when_nothing_skipped() {
+        let report = make_test_report();
+        let mhl = report_mhl(&report, 0).expect("mhl should be generated");
+        assert!(!mhl.contains("<ignored>"));
+    }
+
+    #[test]
+    fn report_txt_shows_format_breakdown() {
+        let report = make_test_report();
+        let txt = report_txt(&report);
+        assert!(txt.contains("Format breakdown:"));
+        assert!(txt.contains("MXF"));
+    }
+
+    #[test]
+    fn report_txt_shows_ignored_count() {
+        let mut report = make_test_report();
+        report.source_scan.ignored_paths = vec![".DS_Store".into(), "Thumbs.db".into()];
+        let txt = report_txt(&report);
+        assert!(txt.contains("Ignored:"));
+        assert!(txt.contains("2 file"));
     }
 
     #[test]

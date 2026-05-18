@@ -79,6 +79,7 @@ pub fn scan_source(
         });
 
     let mut files = Vec::new();
+    let mut ignored_paths: Vec<String> = Vec::new();
     let mut total_size = 0u64;
     let mut total_files = 0u64;
     let mut buf = vec![0u8; CHUNK_SIZE];
@@ -109,6 +110,7 @@ pub fn scan_source(
         let rel_str = relative.to_string_lossy().replace('\\', "/");
 
         if options.ignore_hidden_system && is_hidden_or_system(path) {
+            ignored_paths.push(rel_str);
             continue;
         }
         if let Some(ref gs) = ignore_glob {
@@ -117,6 +119,7 @@ pub fn scan_source(
                 .and_then(|n| n.to_str())
                 .unwrap_or(&rel_str);
             if gs.is_match(rel_str.as_str()) || gs.is_match(basename) {
+                ignored_paths.push(rel_str);
                 continue;
             }
         }
@@ -150,6 +153,7 @@ pub fn scan_source(
         files,
         total_size,
         total_files,
+        ignored_paths,
     })
 }
 

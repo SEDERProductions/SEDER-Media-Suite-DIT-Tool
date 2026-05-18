@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 pub mod engine;
 pub mod hash;
+pub mod media;
 pub mod volume;
 
 pub use hash::ChecksumAlgo;
@@ -77,6 +78,10 @@ pub struct SourceScan {
     pub files: Vec<FileEntry>,
     pub total_size: u64,
     pub total_files: u64,
+    /// Relative paths that matched an ignore rule (hidden/system or glob).
+    /// Tracked so the MHL <ignored> block can faithfully report what was
+    /// excluded from the transfer.
+    pub ignored_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
