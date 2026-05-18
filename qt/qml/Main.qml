@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Qt.labs.platform as Platform
 
 ApplicationWindow {
     id: root
@@ -10,6 +11,81 @@ ApplicationWindow {
     minimumHeight: 720
     visible: true
     title: "SEDER Media Suite DIT"
+
+    Platform.MenuBar {
+        Platform.Menu {
+            title: "&File"
+            Platform.MenuItem {
+                text: "Open Source…"
+                shortcut: "Ctrl+O"
+                enabled: !appController.busy
+                onTriggered: appController.chooseSourceFolder()
+            }
+            Platform.MenuItem {
+                text: "Add Destination…"
+                shortcut: "Ctrl+D"
+                enabled: !appController.busy
+                onTriggered: appController.addDestinationFolder()
+            }
+            Platform.MenuSeparator {}
+            Platform.MenuItem {
+                text: "Export TXT Report…"
+                shortcut: "Ctrl+E"
+                enabled: appController.canExport
+                onTriggered: appController.exportTxt()
+            }
+            Platform.MenuItem {
+                text: "Export CSV Report…"
+                enabled: appController.canExport
+                onTriggered: appController.exportCsv()
+            }
+            Platform.MenuItem {
+                text: "Export MHL Report…"
+                enabled: appController.canExportMhl
+                onTriggered: appController.exportMhl()
+            }
+            Platform.MenuSeparator {}
+            Platform.MenuItem {
+                text: "Quit"
+                shortcut: "Ctrl+Q"
+                role: Platform.MenuItem.QuitRole
+                onTriggered: Qt.quit()
+            }
+        }
+        Platform.Menu {
+            title: "&Edit"
+            Platform.MenuItem {
+                text: "Cancel Offload"
+                shortcut: "Esc"
+                enabled: appController.busy
+                onTriggered: appController.cancelOffload()
+            }
+            Platform.MenuSeparator {}
+            Platform.MenuItem {
+                text: "Preferences…"
+                shortcut: "Ctrl+,"
+                onTriggered: preferencesDialog.open()
+            }
+        }
+        Platform.Menu {
+            title: "&Help"
+            Platform.MenuItem {
+                text: "About SEDER Media Suite DIT"
+                role: Platform.MenuItem.AboutRole
+                onTriggered: aboutDialog.open()
+            }
+        }
+    }
+
+    Shortcut { sequence: "Ctrl+O"; enabled: !appController.busy; onActivated: appController.chooseSourceFolder() }
+    Shortcut { sequence: "Ctrl+D"; enabled: !appController.busy; onActivated: appController.addDestinationFolder() }
+    Shortcut { sequence: "Ctrl+E"; enabled: appController.canExport; onActivated: appController.exportTxt() }
+    Shortcut { sequence: "Ctrl+,"; onActivated: preferencesDialog.open() }
+    Shortcut { sequence: "Ctrl+Q"; onActivated: Qt.quit() }
+    Shortcut { sequence: "Escape"; enabled: appController.busy; onActivated: appController.cancelOffload() }
+
+    AboutDialog { id: aboutDialog; anchors.centerIn: parent }
+    PreferencesDialog { id: preferencesDialog; anchors.centerIn: parent }
 
     readonly property bool dark: themeController.dark
     readonly property color bg: dark ? "#12110f" : "#ece6d9"
@@ -130,13 +206,72 @@ ApplicationWindow {
                         label: "Source folder"
                         path: appController.sourcePath
                         busy: appController.busy
+                        recents: settingsStore ? settingsStore.recentSources : []
                         onPick: appController.chooseSourceFolder()
+                        onAcceptDroppedPath: (droppedPath) => appController.addSourceFromPath(droppedPath)
+                        onRecentSelected: (recentPath) => appController.addSourceFromPath(recentPath)
                     }
 
                     MetaLabel { text: "02 / Destinations" }
                     ColumnLayout {
+                        id: destinationsColumn
                         Layout.fillWidth: true
                         spacing: 6
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: destDropArea.containsDrag ? 44 : 0
+                            color: panelAlt
+                            border.color: green
+                            border.width: 2
+                            radius: 4
+                            visible: destDropArea.containsDrag
+                            Text {
+                                anchors.centerIn: parent
+                                text: "Drop folder to add as destination"
+                                color: green
+                                font.family: root.sans
+                                font.pixelSize: 12
+                            }
+                        }
+
+                        DropArea {
+                            id: destDropArea
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: appController.destinationModel.count === 0 ? 60 : 0
+                            enabled: !appController.busy
+                            onDropped: (drop) => {
+                                if (drop.hasUrls) {
+                                    for (let i = 0; i < drop.urls.length; ++i) {
+                                        const s = drop.urls[i].toString()
+                                        let local = s
+                                        if (s.startsWith("file:///")) {
+                                            const stripped = s.substring(8)
+                                            local = (stripped.length >= 3 && stripped.charAt(1) === ":")
+                                                ? decodeURIComponent(stripped)
+                                                : "/" + decodeURIComponent(stripped)
+                                        } else if (s.startsWith("file://")) {
+                                            local = decodeURIComponent(s.substring(7))
+                                        } else {
+                                            local = decodeURIComponent(s)
+                                        }
+                                        if (local && local.length > 0) {
+                                            appController.addDestinationFromPath(local)
+                                        }
+                                    }
+                                    drop.accept()
+                                }
+                            }
+                            Text {
+                                anchors.centerIn: parent
+                                visible: appController.destinationModel.count === 0
+                                text: "Drag folders here, or click + Add Destination"
+                                color: faint
+                                font.family: root.sans
+                                font.pixelSize: 11
+                            }
+                        }
+
                         Repeater {
                             model: appController.destinationModel
                             Rectangle {

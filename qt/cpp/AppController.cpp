@@ -1,5 +1,7 @@
 #include "AppController.h"
 
+#include "SettingsStore.h"
+
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -23,11 +25,32 @@ void setIfChanged(T &field, const T &value, const std::function<void()> &notify)
 
 } // namespace
 
-AppController::AppController(QObject *parent)
+AppController::AppController(SettingsStore *settings, QObject *parent)
     : QObject(parent)
+    , m_settings(settings)
     , m_destinationModel(new DestinationListModel(this))
 {
+    if (m_settings) {
+        m_ignorePatterns = m_settings->defaultIgnorePatterns();
+        m_ignoreHiddenSystem = m_settings->defaultIgnoreHiddenSystem();
+        m_verifyAfterCopy = m_settings->defaultVerifyAfterCopy();
+        m_skipExisting = m_settings->defaultSkipExisting();
+        m_generateReport = m_settings->defaultGenerateReport();
+        m_projectName = m_settings->lastProjectName();
+        m_shootDate = m_settings->lastShootDate();
+        m_cardName = m_settings->lastCardName();
+        m_cameraId = m_settings->lastCameraId();
+    }
     appendLog(QStringLiteral("Ready to offload media."));
+}
+
+QString AppController::appVersion() const
+{
+#ifdef SEDER_DIT_VERSION
+    return QString::fromLatin1(SEDER_DIT_VERSION);
+#else
+    return QStringLiteral("0.0.0");
+#endif
 }
 
 QString AppController::sourcePath() const { return m_sourcePath; }
@@ -68,7 +91,7 @@ void AppController::chooseSourceFolder()
 {
     const QString path = QFileDialog::getExistingDirectory(nullptr, tr("Choose Source Folder"), m_sourcePath);
     if (!path.isEmpty()) {
-        setSourcePath(path);
+        addSourceFromPath(path);
     }
 }
 
@@ -76,8 +99,46 @@ void AppController::addDestinationFolder()
 {
     const QString path = QFileDialog::getExistingDirectory(nullptr, tr("Choose Destination Folder"), QString());
     if (!path.isEmpty()) {
-        m_destinationModel->addDestination(path);
+        addDestinationFromPath(path);
     }
+}
+
+void AppController::addSourceFromPath(const QString &path)
+{
+    if (path.isEmpty()) return;
+    const QFileInfo fi(path);
+    if (!fi.exists() || !fi.isDir()) {
+        appendLog(tr("Source folder does not exist: %1").arg(path), LogSeverity::Warn);
+        return;
+    }
+    setSourcePath(fi.absoluteFilePath());
+    if (m_settings) {
+        m_settings->rememberSource(fi.absoluteFilePath());
+    }
+}
+
+void AppController::addDestinationFromPath(const QString &path)
+{
+    if (path.isEmpty()) return;
+    const QFileInfo fi(path);
+    if (!fi.exists() || !fi.isDir()) {
+        appendLog(tr("Destination folder does not exist: %1").arg(path), LogSeverity::Warn);
+        return;
+    }
+    m_destinationModel->addDestination(fi.absoluteFilePath());
+    if (m_settings) {
+        m_settings->rememberDestination(fi.absoluteFilePath());
+    }
+}
+
+void AppController::applyDefaultsFromSettings()
+{
+    if (!m_settings) return;
+    setIgnorePatterns(m_settings->defaultIgnorePatterns());
+    setIgnoreHiddenSystem(m_settings->defaultIgnoreHiddenSystem());
+    setVerifyAfterCopy(m_settings->defaultVerifyAfterCopy());
+    setSkipExisting(m_settings->defaultSkipExisting());
+    setGenerateReport(m_settings->defaultGenerateReport());
 }
 
 void AppController::copyDestinationPath(int sourceIndex)
@@ -138,6 +199,9 @@ void AppController::copyDestinationPath(int sourceIndex)
     }
 
     m_destinationModel->addDestination(targetPath);
+    if (m_settings) {
+        m_settings->rememberDestination(targetPath);
+    }
 }
 
 void AppController::syncDestinationPaths()
@@ -195,6 +259,14 @@ void AppController::startOffload()
     request.verifyAfterCopy = m_verifyAfterCopy;
     request.skipExisting = m_skipExisting;
     request.generateReport = m_generateReport;
+
+    if (m_settings) {
+        m_settings->setLastProjectMetadata(m_projectName, m_shootDate, m_cardName, m_cameraId);
+        m_settings->rememberSource(m_sourcePath);
+        for (auto *item : m_destinationModel->items()) {
+            m_settings->rememberDestination(item->path());
+        }
+    }
 
     setBusy(true);
     setOverallProgress(0.0);

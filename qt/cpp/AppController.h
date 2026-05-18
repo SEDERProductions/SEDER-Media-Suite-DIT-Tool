@@ -7,6 +7,8 @@
 #include <QObject>
 #include <QStringList>
 
+class SettingsStore;
+
 class AppController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString sourcePath READ sourcePath WRITE setSourcePath NOTIFY sourcePathChanged)
@@ -32,9 +34,12 @@ class AppController final : public QObject {
     Q_PROPERTY(quint64 totalFiles READ totalFiles NOTIFY summaryChanged)
     Q_PROPERTY(quint64 totalSize READ totalSize NOTIFY summaryChanged)
     Q_PROPERTY(bool pass READ pass NOTIFY summaryChanged)
+    Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
 
 public:
-    explicit AppController(QObject *parent = nullptr);
+    explicit AppController(SettingsStore *settings = nullptr, QObject *parent = nullptr);
+
+    QString appVersion() const;
 
     QString sourcePath() const;
     void setSourcePath(const QString &value);
@@ -72,6 +77,8 @@ public:
 
     Q_INVOKABLE void chooseSourceFolder();
     Q_INVOKABLE void addDestinationFolder();
+    Q_INVOKABLE void addSourceFromPath(const QString &path);
+    Q_INVOKABLE void addDestinationFromPath(const QString &path);
     Q_INVOKABLE void copyDestinationPath(int sourceIndex);
     Q_INVOKABLE void syncDestinationPaths();
     Q_INVOKABLE void removeDestination(int index);
@@ -83,6 +90,7 @@ public:
     Q_INVOKABLE void clearLog();
     Q_INVOKABLE void copyLog();
     Q_INVOKABLE QString formatBytes(quint64 value) const;
+    Q_INVOKABLE void applyDefaultsFromSettings();
 
 signals:
     void sourcePathChanged();
@@ -119,6 +127,7 @@ private:
     void setPass(bool value);
     void writeExport(const QString &caption, const QString &defaultName, const QString &contents);
 
+    SettingsStore *m_settings = nullptr;
     DestinationListModel *m_destinationModel = nullptr;
     QString m_sourcePath;
     QString m_projectName;
