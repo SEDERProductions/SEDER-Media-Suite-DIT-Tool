@@ -15,6 +15,7 @@ class SettingsStore final : public QObject {
     Q_PROPERTY(bool defaultSkipExisting READ defaultSkipExisting WRITE setDefaultSkipExisting NOTIFY defaultSkipExistingChanged)
     Q_PROPERTY(bool defaultGenerateReport READ defaultGenerateReport WRITE setDefaultGenerateReport NOTIFY defaultGenerateReportChanged)
     Q_PROPERTY(QString defaultChecksumAlgorithm READ defaultChecksumAlgorithm WRITE setDefaultChecksumAlgorithm NOTIFY defaultChecksumAlgorithmChanged)
+    Q_PROPERTY(QString destinationTemplate READ destinationTemplate WRITE setDestinationTemplate NOTIFY destinationTemplateChanged)
 
 public:
     static constexpr int kMaxRecent = 10;
@@ -37,6 +38,8 @@ public:
     void setDefaultGenerateReport(bool value);
     QString defaultChecksumAlgorithm() const;
     void setDefaultChecksumAlgorithm(const QString &value);
+    QString destinationTemplate() const;
+    void setDestinationTemplate(const QString &value);
 
     QRect windowGeometry() const;
     void setWindowGeometry(const QRect &rect);
@@ -63,6 +66,7 @@ signals:
     void defaultSkipExistingChanged();
     void defaultGenerateReportChanged();
     void defaultChecksumAlgorithmChanged();
+    void destinationTemplateChanged();
 
 private:
     void load();
@@ -76,6 +80,7 @@ private:
     bool m_defaultSkipExisting = false;
     bool m_defaultGenerateReport = true;
     QString m_defaultChecksumAlgorithm = QStringLiteral("BLAKE3");
+    QString m_destinationTemplate;
     QString m_lastProjectName;
     QString m_lastShootDate;
     QString m_lastCardName;

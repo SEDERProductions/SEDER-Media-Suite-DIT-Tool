@@ -529,6 +529,37 @@ pub unsafe extern "C" fn seder_report_verification_performed(
     }
 }
 
+/// Expand a destination template (e.g. "{project}/{date}/{card}") given the
+/// project metadata. The returned C string is heap-allocated and must be
+/// freed with `seder_string_free`. Returns NULL on null inputs.
+#[no_mangle]
+pub unsafe extern "C" fn seder_expand_template(
+    template: *const c_char,
+    project_name: *const c_char,
+    shoot_date: *const c_char,
+    card_name: *const c_char,
+    camera_id: *const c_char,
+) -> *mut c_char {
+    let result = catch_unwind(|| {
+        if template.is_null() {
+            return std::ptr::null_mut::<c_char>();
+        }
+        let metadata = ProjectMetadata {
+            project_name: unsafe { cstr_to_string(project_name) },
+            shoot_date: unsafe { cstr_to_string(shoot_date) },
+            card_name: unsafe { cstr_to_string(card_name) },
+            camera_id: unsafe { cstr_to_string(camera_id) },
+        };
+        let tpl = unsafe { cstr_to_string(template) };
+        let expanded = crate::offload::template::expand(&tpl, &metadata);
+        match CString::new(expanded) {
+            Ok(c) => c.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+    result.unwrap_or(std::ptr::null_mut())
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================

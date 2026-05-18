@@ -92,6 +92,16 @@ uint8_t seder_report_dest_state(
 
 uint8_t seder_report_verification_performed(OffloadReportHandle *handle);
 
+/* Expand a destination template like "{project}/{date}/{card}". The
+ * returned string is heap-allocated; release it with seder_string_free.
+ * Returns NULL on failure. */
+char *seder_expand_template(
+    const char *template_str,
+    const char *project_name,
+    const char *shoot_date,
+    const char *card_name,
+    const char *camera_id);
+
 #ifdef __cplusplus
 }
 #endif

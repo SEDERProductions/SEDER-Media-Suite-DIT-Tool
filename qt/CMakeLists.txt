@@ -33,6 +33,7 @@ set(RUST_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/engine.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/hash.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/media.rs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/template.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/volume.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/report.rs"
 )

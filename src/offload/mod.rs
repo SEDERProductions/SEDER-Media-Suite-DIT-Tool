@@ -3,6 +3,7 @@ use std::path::PathBuf;
 pub mod engine;
 pub mod hash;
 pub mod media;
+pub mod template;
 pub mod volume;
 
 pub use hash::ChecksumAlgo;

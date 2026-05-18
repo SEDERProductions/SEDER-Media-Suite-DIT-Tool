@@ -1,6 +1,7 @@
 #include "AppController.h"
 
 #include "SettingsStore.h"
+#include "seder_ffi.h"
 
 #include <QFileDialog>
 #include <QFileInfo>
@@ -139,10 +140,60 @@ void AppController::addDestinationFromPath(const QString &path)
         appendLog(tr("Destination folder does not exist: %1").arg(path), LogSeverity::Warn);
         return;
     }
-    m_destinationModel->addDestination(fi.absoluteFilePath());
-    if (m_settings) {
-        m_settings->rememberDestination(fi.absoluteFilePath());
+
+    QString finalPath = fi.absoluteFilePath();
+    if (m_settings && !m_settings->destinationTemplate().isEmpty()) {
+        const QString subfolder = previewDestinationTemplate(QString());
+        if (!subfolder.isEmpty()) {
+            QDir dir(finalPath);
+            const QString combined = dir.filePath(subfolder);
+            QDir target(combined);
+            if (!target.exists()) {
+                if (!target.mkpath(QStringLiteral("."))) {
+                    appendLog(tr("Failed to create template directory: %1").arg(combined),
+                              LogSeverity::Warn);
+                    // Fall back to using the base path as-is
+                    m_destinationModel->addDestination(finalPath);
+                    if (m_settings) m_settings->rememberDestination(finalPath);
+                    return;
+                }
+                appendLog(tr("Created directory from template: %1").arg(combined));
+            }
+            finalPath = combined;
+        }
     }
+
+    m_destinationModel->addDestination(finalPath);
+    if (m_settings) {
+        m_settings->rememberDestination(finalPath);
+    }
+}
+
+QString AppController::previewDestinationTemplate(const QString &basePath) const
+{
+    if (!m_settings) return basePath;
+    const QString tpl = m_settings->destinationTemplate();
+    if (tpl.isEmpty()) return basePath;
+
+    const QByteArray tplBytes = tpl.toUtf8();
+    const QByteArray projectBytes = m_projectName.toUtf8();
+    const QByteArray dateBytes = m_shootDate.toUtf8();
+    const QByteArray cardBytes = m_cardName.toUtf8();
+    const QByteArray cameraBytes = m_cameraId.toUtf8();
+
+    char *expanded = seder_expand_template(
+        tplBytes.constData(),
+        projectBytes.constData(),
+        dateBytes.constData(),
+        cardBytes.constData(),
+        cameraBytes.constData());
+
+    if (!expanded) return basePath;
+    const QString sub = QString::fromUtf8(expanded);
+    seder_string_free(expanded);
+
+    if (basePath.isEmpty()) return sub;
+    return QDir(basePath).filePath(sub);
 }
 
 void AppController::applyDefaultsFromSettings()

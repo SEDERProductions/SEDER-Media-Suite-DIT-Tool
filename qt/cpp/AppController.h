@@ -94,6 +94,7 @@ public:
     Q_INVOKABLE void copyLog();
     Q_INVOKABLE QString formatBytes(quint64 value) const;
     Q_INVOKABLE void applyDefaultsFromSettings();
+    Q_INVOKABLE QString previewDestinationTemplate(const QString &basePath) const;
 
 signals:
     void sourcePathChanged();

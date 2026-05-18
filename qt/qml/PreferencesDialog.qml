@@ -124,6 +124,45 @@ Dialog {
             font.pixelSize: 11
         }
 
+        Rectangle { Layout.fillWidth: true; height: 1; color: line }
+
+        Text {
+            text: "Destination subfolder template"
+            color: ink
+            font.family: sans
+            font.pixelSize: 13
+            font.bold: true
+        }
+        Text {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: "Optional. When set, picking a destination folder will create and use the "
+                + "expanded subfolder underneath it. Tokens: {project}, {date}, {card}, {camera}."
+            color: faint
+            font.family: sans
+            font.pixelSize: 11
+        }
+        TextField {
+            id: templateField
+            Layout.fillWidth: true
+            text: settingsStore.destinationTemplate
+            placeholderText: "{project}/{date}/{card}"
+            font.family: mono
+            font.pixelSize: 11
+            onEditingFinished: settingsStore.destinationTemplate = text
+        }
+        Text {
+            id: templatePreview
+            Layout.fillWidth: true
+            wrapMode: Text.WrapAnywhere
+            text: "Preview: " + (settingsStore.destinationTemplate.length > 0
+                ? appController.previewDestinationTemplate("")
+                : "(no template — destination folder used as-is)")
+            color: muted
+            font.family: mono
+            font.pixelSize: 11
+        }
+
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
