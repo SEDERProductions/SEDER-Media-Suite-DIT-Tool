@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
 pub mod engine;
-pub mod progress;
-pub mod verify;
 pub mod volume;
 
 #[derive(Debug, Clone)]
