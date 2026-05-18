@@ -12,6 +12,7 @@ constexpr const char *kKeyDefaultVerifyAfterCopy = "dit/defaults/verifyAfterCopy
 constexpr const char *kKeyDefaultIgnoreHiddenSystem = "dit/defaults/ignoreHiddenSystem";
 constexpr const char *kKeyDefaultSkipExisting = "dit/defaults/skipExisting";
 constexpr const char *kKeyDefaultGenerateReport = "dit/defaults/generateReport";
+constexpr const char *kKeyDefaultChecksumAlgorithm = "dit/defaults/checksumAlgorithm";
 constexpr const char *kKeyWindowGeometry = "dit/window/geometry";
 constexpr const char *kKeyLastProject = "dit/lastMetadata/projectName";
 constexpr const char *kKeyLastShootDate = "dit/lastMetadata/shootDate";
@@ -42,6 +43,8 @@ void SettingsStore::load()
     m_defaultIgnoreHiddenSystem = s.value(QString::fromLatin1(kKeyDefaultIgnoreHiddenSystem), true).toBool();
     m_defaultSkipExisting = s.value(QString::fromLatin1(kKeyDefaultSkipExisting), false).toBool();
     m_defaultGenerateReport = s.value(QString::fromLatin1(kKeyDefaultGenerateReport), true).toBool();
+    m_defaultChecksumAlgorithm = s.value(QString::fromLatin1(kKeyDefaultChecksumAlgorithm),
+                                          QStringLiteral("BLAKE3")).toString();
     m_lastProjectName = s.value(QString::fromLatin1(kKeyLastProject)).toString();
     m_lastShootDate = s.value(QString::fromLatin1(kKeyLastShootDate)).toString();
     m_lastCardName = s.value(QString::fromLatin1(kKeyLastCardName)).toString();
@@ -55,6 +58,7 @@ bool SettingsStore::defaultVerifyAfterCopy() const { return m_defaultVerifyAfter
 bool SettingsStore::defaultIgnoreHiddenSystem() const { return m_defaultIgnoreHiddenSystem; }
 bool SettingsStore::defaultSkipExisting() const { return m_defaultSkipExisting; }
 bool SettingsStore::defaultGenerateReport() const { return m_defaultGenerateReport; }
+QString SettingsStore::defaultChecksumAlgorithm() const { return m_defaultChecksumAlgorithm; }
 
 QString SettingsStore::lastProjectName() const { return m_lastProjectName; }
 QString SettingsStore::lastShootDate() const { return m_lastShootDate; }
@@ -99,6 +103,20 @@ void SettingsStore::setDefaultGenerateReport(bool value)
     m_defaultGenerateReport = value;
     settings().setValue(QString::fromLatin1(kKeyDefaultGenerateReport), value);
     emit defaultGenerateReportChanged();
+}
+
+void SettingsStore::setDefaultChecksumAlgorithm(const QString &value)
+{
+    static const QStringList valid = {
+        QStringLiteral("BLAKE3"), QStringLiteral("MD5"), QStringLiteral("SHA1"),
+        QStringLiteral("XXH3-64"), QStringLiteral("XXH3-128")
+    };
+    const QString upper = value.trimmed().toUpper();
+    const QString normalized = valid.contains(upper) ? upper : QStringLiteral("BLAKE3");
+    if (m_defaultChecksumAlgorithm == normalized) return;
+    m_defaultChecksumAlgorithm = normalized;
+    settings().setValue(QString::fromLatin1(kKeyDefaultChecksumAlgorithm), normalized);
+    emit defaultChecksumAlgorithmChanged();
 }
 
 QRect SettingsStore::windowGeometry() const
@@ -164,4 +182,5 @@ void SettingsStore::resetDefaultsToFactory()
     setDefaultIgnoreHiddenSystem(true);
     setDefaultSkipExisting(false);
     setDefaultGenerateReport(true);
+    setDefaultChecksumAlgorithm(QStringLiteral("BLAKE3"));
 }

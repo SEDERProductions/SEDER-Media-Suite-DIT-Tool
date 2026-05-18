@@ -103,6 +103,30 @@ Dialog {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
+            FieldLabel { text: "Default checksum algorithm" }
+            ComboBox {
+                id: algoCombo
+                readonly property var algos: ["BLAKE3", "MD5", "SHA1", "XXH3-64", "XXH3-128"]
+                Layout.fillWidth: true
+                model: algos
+                currentIndex: Math.max(0, algos.indexOf(settingsStore.defaultChecksumAlgorithm))
+                onActivated: settingsStore.defaultChecksumAlgorithm = algos[currentIndex]
+            }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: "BLAKE3 (default) is fast and cryptographic. XXH3-64 is fastest and good for "
+                + "in-house verification. MD5 / SHA-1 are slower but interoperate with legacy DIT pipelines."
+            color: faint
+            font.family: sans
+            font.pixelSize: 11
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
             Item { Layout.fillWidth: true }
             QuietButton {
                 text: "Reset to factory defaults"

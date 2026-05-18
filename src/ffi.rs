@@ -37,6 +37,9 @@ pub struct SederOffloadRequest {
     pub skip_existing: u8,
     pub generate_report: u8,
     pub cancel_token: *mut u8,
+    /// NUL-terminated algorithm name: BLAKE3 / MD5 / SHA1 / XXH3-64 /
+    /// XXH3-128. NULL or an unrecognized value falls back to BLAKE3.
+    pub checksum_algorithm: *const c_char,
 }
 
 #[repr(C)]
@@ -146,6 +149,13 @@ pub unsafe extern "C" fn seder_offload_start(
             .filter(|s| !s.is_empty())
             .collect();
 
+        let algorithm = if req.checksum_algorithm.is_null() {
+            ChecksumAlgo::default()
+        } else {
+            let name = unsafe { cstr_to_string(req.checksum_algorithm) };
+            ChecksumAlgo::parse(&name).unwrap_or_default()
+        };
+
         let options = OffloadOptions {
             ignore_hidden_system: req.ignore_hidden_system != 0,
             ignore_patterns,
@@ -153,7 +163,7 @@ pub unsafe extern "C" fn seder_offload_start(
             sync_writes: req.sync_writes != 0,
             skip_existing: req.skip_existing != 0,
             generate_report: req.generate_report != 0,
-            algorithm: ChecksumAlgo::default(),
+            algorithm,
         };
 
         let offload_request = OffloadRequest {

@@ -22,6 +22,7 @@ class AppController final : public QObject {
     Q_PROPERTY(bool verifyAfterCopy READ verifyAfterCopy WRITE setVerifyAfterCopy NOTIFY verifyAfterCopyChanged)
     Q_PROPERTY(bool skipExisting READ skipExisting WRITE setSkipExisting NOTIFY skipExistingChanged)
     Q_PROPERTY(bool generateReport READ generateReport WRITE setGenerateReport NOTIFY generateReportChanged)
+    Q_PROPERTY(QString checksumAlgorithm READ checksumAlgorithm WRITE setChecksumAlgorithm NOTIFY checksumAlgorithmChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(double overallProgress READ overallProgress NOTIFY overallProgressChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
@@ -62,6 +63,8 @@ public:
     void setSkipExisting(bool value);
     bool generateReport() const;
     void setGenerateReport(bool value);
+    QString checksumAlgorithm() const;
+    void setChecksumAlgorithm(const QString &value);
     bool busy() const;
     double overallProgress() const;
     QString statusText() const;
@@ -103,6 +106,7 @@ signals:
     void verifyAfterCopyChanged();
     void skipExistingChanged();
     void generateReportChanged();
+    void checksumAlgorithmChanged();
     void busyChanged();
     void overallProgressChanged();
     void statusTextChanged();
@@ -139,6 +143,7 @@ private:
     bool m_verifyAfterCopy = true;
     bool m_skipExisting = false;
     bool m_generateReport = true;
+    QString m_checksumAlgorithm = QStringLiteral("BLAKE3");
     bool m_busy = false;
     double m_overallProgress = 0.0;
     QString m_statusText = QStringLiteral("Ready for offload.");

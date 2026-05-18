@@ -27,6 +27,9 @@ typedef struct SederOffloadRequest {
     uint8_t skip_existing;
     uint8_t generate_report;
     uint8_t *cancel_token;
+    /* NUL-terminated algorithm name: BLAKE3 / MD5 / SHA1 / XXH3-64 /
+     * XXH3-128. Pass NULL to use the default (BLAKE3). */
+    const char *checksum_algorithm;
 } SederOffloadRequest;
 
 typedef struct SederDestinationProgress {

@@ -76,6 +76,7 @@ void DitOffloadWorker::run()
     QByteArray cardName = m_request.cardName.toUtf8();
     QByteArray cameraId = m_request.cameraId.toUtf8();
     QByteArray ignorePatterns = m_request.ignorePatterns.toUtf8();
+    QByteArray checksumAlgo = m_request.checksumAlgorithm.toUtf8();
 
     SederOffloadRequest req{};
     req.source_path = sourcePath.constData();
@@ -92,6 +93,7 @@ void DitOffloadWorker::run()
     req.skip_existing = m_request.skipExisting ? 1 : 0;
     req.generate_report = m_request.generateReport ? 1 : 0;
     req.cancel_token = reinterpret_cast<uint8_t *>(&m_cancelToken);
+    req.checksum_algorithm = m_request.checksumAlgorithm.isEmpty() ? nullptr : checksumAlgo.constData();
 
     char *errorOut = nullptr;
     OffloadReportHandle *handle = seder_offload_start(&req, &DitOffloadWorker::progressTrampoline, this, &errorOut);

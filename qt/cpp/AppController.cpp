@@ -36,6 +36,7 @@ AppController::AppController(SettingsStore *settings, QObject *parent)
         m_verifyAfterCopy = m_settings->defaultVerifyAfterCopy();
         m_skipExisting = m_settings->defaultSkipExisting();
         m_generateReport = m_settings->defaultGenerateReport();
+        m_checksumAlgorithm = m_settings->defaultChecksumAlgorithm();
         m_projectName = m_settings->lastProjectName();
         m_shootDate = m_settings->lastShootDate();
         m_cardName = m_settings->lastCardName();
@@ -74,6 +75,19 @@ bool AppController::skipExisting() const { return m_skipExisting; }
 void AppController::setSkipExisting(bool value) { if (m_skipExisting != value) { m_skipExisting = value; emit skipExistingChanged(); } }
 bool AppController::generateReport() const { return m_generateReport; }
 void AppController::setGenerateReport(bool value) { if (m_generateReport != value) { m_generateReport = value; emit generateReportChanged(); } }
+QString AppController::checksumAlgorithm() const { return m_checksumAlgorithm; }
+void AppController::setChecksumAlgorithm(const QString &value)
+{
+    const QString upper = value.trimmed().toUpper();
+    static const QStringList valid = {
+        QStringLiteral("BLAKE3"), QStringLiteral("MD5"), QStringLiteral("SHA1"),
+        QStringLiteral("XXH3-64"), QStringLiteral("XXH3-128")
+    };
+    const QString normalized = valid.contains(upper) ? upper : QStringLiteral("BLAKE3");
+    if (m_checksumAlgorithm == normalized) return;
+    m_checksumAlgorithm = normalized;
+    emit checksumAlgorithmChanged();
+}
 bool AppController::busy() const { return m_busy; }
 double AppController::overallProgress() const { return m_overallProgress; }
 QString AppController::statusText() const { return m_statusText; }
@@ -139,6 +153,7 @@ void AppController::applyDefaultsFromSettings()
     setVerifyAfterCopy(m_settings->defaultVerifyAfterCopy());
     setSkipExisting(m_settings->defaultSkipExisting());
     setGenerateReport(m_settings->defaultGenerateReport());
+    setChecksumAlgorithm(m_settings->defaultChecksumAlgorithm());
 }
 
 void AppController::copyDestinationPath(int sourceIndex)
@@ -255,6 +270,7 @@ void AppController::startOffload()
     request.cardName = m_cardName;
     request.cameraId = m_cameraId;
     request.ignorePatterns = m_ignorePatterns;
+    request.checksumAlgorithm = m_checksumAlgorithm;
     request.ignoreHiddenSystem = m_ignoreHiddenSystem;
     request.verifyAfterCopy = m_verifyAfterCopy;
     request.skipExisting = m_skipExisting;

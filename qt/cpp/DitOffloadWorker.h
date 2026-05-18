@@ -18,6 +18,7 @@ struct OffloadRequestData {
     QString cardName;
     QString cameraId;
     QString ignorePatterns;
+    QString checksumAlgorithm; // BLAKE3 / MD5 / SHA1 / XXH3-64 / XXH3-128
     bool ignoreHiddenSystem = true;
     bool verifyAfterCopy = true;
     bool syncWrites = true;
