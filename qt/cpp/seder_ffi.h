@@ -105,6 +105,16 @@ uint8_t seder_ffprobe_available(void);
 /* 1 if ffmpeg is discoverable on this host, 0 otherwise. */
 uint8_t seder_ffmpeg_available(void);
 
+/* Extract a thumbnail JPEG for the given media file into the cache
+ * directory, content-addressed by (algorithm, hash). Returns the
+ * heap-allocated absolute path on success, NULL on failure. The caller
+ * frees with seder_string_free. */
+char *seder_extract_thumbnail(
+    const char *media_path,
+    const char *cache_dir,
+    const char *algorithm,
+    const char *hash);
+
 /* Expand a destination template like "{project}/{date}/{card}". The
  * returned string is heap-allocated; release it with seder_string_free.
  * Returns NULL on failure. */

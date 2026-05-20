@@ -577,6 +577,43 @@ pub extern "C" fn seder_ffmpeg_available() -> u8 {
     }
 }
 
+/// Extract a thumbnail JPEG for the given media file into the given
+/// cache directory. The cache key is the source `algorithm` and `hash`
+/// strings — passing the same pair returns the same cached file without
+/// re-invoking ffmpeg. Returns the heap-allocated absolute path on
+/// success, NULL on failure. Caller frees with `seder_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn seder_extract_thumbnail(
+    media: *const c_char,
+    cache_dir: *const c_char,
+    algorithm: *const c_char,
+    hash: *const c_char,
+) -> *mut c_char {
+    let result = catch_unwind(|| {
+        if media.is_null() || cache_dir.is_null() || algorithm.is_null() || hash.is_null() {
+            return std::ptr::null_mut::<c_char>();
+        }
+        let media_s = unsafe { cstr_to_string(media) };
+        let cache_s = unsafe { cstr_to_string(cache_dir) };
+        let algo_s = unsafe { cstr_to_string(algorithm) };
+        let hash_s = unsafe { cstr_to_string(hash) };
+
+        match crate::offload::thumbnail::extract(
+            std::path::Path::new(&media_s),
+            std::path::Path::new(&cache_s),
+            &algo_s,
+            &hash_s,
+        ) {
+            Ok(path) => match CString::new(path.to_string_lossy().into_owned()) {
+                Ok(c) => c.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+    result.unwrap_or(std::ptr::null_mut())
+}
+
 /// Expand a destination template (e.g. "{project}/{date}/{card}") given the
 /// project metadata. The returned C string is heap-allocated and must be
 /// freed with `seder_string_free`. Returns NULL on null inputs.
