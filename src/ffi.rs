@@ -110,6 +110,7 @@ pub struct OffloadReportHandle {
     pub csv_export: CString,
     pub mhl_export: CString,
     pub metadata_json_export: CString,
+    pub ale_export: CString,
 }
 
 // ============================================================================
@@ -380,6 +381,7 @@ pub unsafe extern "C" fn seder_offload_start(
         } else {
             String::new()
         };
+        let ale = report::report_ale(&report);
 
         let handle = Box::new(OffloadReportHandle {
             report,
@@ -387,6 +389,7 @@ pub unsafe extern "C" fn seder_offload_start(
             csv_export: CString::new(csv).unwrap_or_default(),
             mhl_export: CString::new(mhl).unwrap_or_default(),
             metadata_json_export: CString::new(metadata_json).unwrap_or_default(),
+            ale_export: CString::new(ale).unwrap_or_default(),
         });
 
         Ok(Box::into_raw(handle))
@@ -552,6 +555,67 @@ pub unsafe extern "C" fn seder_report_export_metadata_json(
         return std::ptr::null();
     }
     unsafe { (*handle).metadata_json_export.as_ptr() }
+}
+
+/// Borrowed pointer to the ALE (Avid Log Exchange) sidecar.
+#[no_mangle]
+pub unsafe extern "C" fn seder_report_export_ale(
+    handle: *mut OffloadReportHandle,
+) -> *const c_char {
+    if handle.is_null() {
+        return std::ptr::null();
+    }
+    unsafe { (*handle).ale_export.as_ptr() }
+}
+
+/// 1 if `path` resolves to an LTFS-mounted volume on the host, 0 otherwise.
+#[no_mangle]
+pub unsafe extern "C" fn seder_is_ltfs_volume(path: *const c_char) -> u8 {
+    if path.is_null() {
+        return 0;
+    }
+    let s = unsafe { cstr_to_string(path) };
+    if crate::offload::volume::is_ltfs_volume(std::path::Path::new(&s)) {
+        1
+    } else {
+        0
+    }
+}
+
+/// Transcode `media` into `proxies_root` using a named preset
+/// (PRORES / H264 / DNXHR — case-insensitive). Returns the
+/// heap-allocated output path on success, NULL on failure. Caller
+/// frees with `seder_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn seder_generate_proxy(
+    media: *const c_char,
+    proxies_root: *const c_char,
+    preset_name: *const c_char,
+) -> *mut c_char {
+    let result = catch_unwind(|| {
+        if media.is_null() || proxies_root.is_null() || preset_name.is_null() {
+            return std::ptr::null_mut::<c_char>();
+        }
+        let media_s = unsafe { cstr_to_string(media) };
+        let root_s = unsafe { cstr_to_string(proxies_root) };
+        let preset_s = unsafe { cstr_to_string(preset_name) };
+        let preset = match crate::offload::proxy::ProxyPreset::parse(&preset_s) {
+            Some(p) => p,
+            None => return std::ptr::null_mut(),
+        };
+        match crate::offload::proxy::transcode(
+            std::path::Path::new(&media_s),
+            std::path::Path::new(&root_s),
+            preset,
+        ) {
+            Ok(p) => match CString::new(p.to_string_lossy().into_owned()) {
+                Ok(c) => c.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+    result.unwrap_or(std::ptr::null_mut())
 }
 
 /// 1 if ffprobe was discoverable at the moment of the call, 0 otherwise.

@@ -100,6 +100,23 @@ uint8_t seder_report_verification_performed(OffloadReportHandle *handle);
  * ffprobe metadata. Empty when extract_metadata was disabled. */
 const char *seder_report_export_metadata_json(OffloadReportHandle *handle);
 
+/* Borrowed pointer to the ALE (Avid Log Exchange) sidecar. Always
+ * populated, but most useful when extract_metadata is on so per-clip
+ * timecode and FPS columns are filled in. */
+const char *seder_report_export_ale(OffloadReportHandle *handle);
+
+/* 1 if the path resolves to an LTFS-mounted volume, 0 otherwise. */
+uint8_t seder_is_ltfs_volume(const char *path);
+
+/* Transcode `media` using a named preset (PRORES / H264 / DNXHR). The
+ * returned string is heap-allocated; free with seder_string_free.
+ * Returns NULL on failure (missing ffmpeg, unknown preset, ffmpeg
+ * non-zero exit). */
+char *seder_generate_proxy(
+    const char *media_path,
+    const char *proxies_root,
+    const char *preset_name);
+
 /* 1 if ffprobe is discoverable on this host, 0 otherwise. */
 uint8_t seder_ffprobe_available(void);
 /* 1 if ffmpeg is discoverable on this host, 0 otherwise. */

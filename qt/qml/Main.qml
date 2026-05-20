@@ -49,6 +49,11 @@ ApplicationWindow {
                 enabled: appController.canExportMetadataJson
                 onTriggered: appController.exportMetadataJson()
             }
+            Platform.MenuItem {
+                text: "Export ALE (Avid Log Exchange)…"
+                enabled: appController.canExport
+                onTriggered: appController.exportAle()
+            }
             Platform.MenuSeparator {}
             Platform.MenuItem {
                 text: "Quit"

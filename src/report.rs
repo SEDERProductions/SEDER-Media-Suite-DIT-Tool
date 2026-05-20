@@ -207,6 +207,109 @@ pub fn report_mhl(report: &OffloadReport, destination_index: usize) -> Result<St
     Ok(out)
 }
 
+/// Emit an Avid Log Exchange (.ale) sidecar listing each clip. Columns
+/// follow the minimal Avid convention: Name, Tape, Start, FPS, Duration.
+/// Tape is derived from the project's card name when available, falling
+/// back to the file's stem. Frame rate and duration use the metadata
+/// populated by ffprobe; rows without metadata still appear with
+/// blanks so the offload can be imported as a manifest.
+pub fn report_ale(report: &OffloadReport) -> String {
+    let mut out = String::new();
+    out.push_str("Heading\n");
+    out.push_str("FIELD_DELIM\tTABS\n");
+    out.push_str("VIDEO_FORMAT\t1080\n");
+    out.push_str("AUDIO_FORMAT\t48khz\n");
+    out.push_str(&format!(
+        "FPS\t{}\n",
+        report
+            .source_scan
+            .files
+            .iter()
+            .find_map(|f| f.metadata.as_ref().map(|m| m.fps_display()))
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "24".into())
+    ));
+    out.push('\n');
+
+    out.push_str("Column\n");
+    out.push_str("Name\tTape\tStart\tFPS\tDuration\n\n");
+
+    out.push_str("Data\n");
+    let tape = if !report.metadata.card_name.is_empty() {
+        report.metadata.card_name.clone()
+    } else {
+        String::new()
+    };
+    for f in &report.source_scan.files {
+        let name = std::path::Path::new(&f.relative_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&f.relative_path)
+            .to_string();
+        let start = f
+            .metadata
+            .as_ref()
+            .and_then(|m| m.timecode.clone())
+            .unwrap_or_default();
+        let fps = f
+            .metadata
+            .as_ref()
+            .map(|m| m.fps_display())
+            .unwrap_or_default();
+        let duration = f
+            .metadata
+            .as_ref()
+            .map(|m| seconds_to_timecode(m.duration_seconds, m.fps_num, m.fps_den))
+            .unwrap_or_default();
+        let row_tape = if tape.is_empty() {
+            name.clone()
+        } else {
+            tape.clone()
+        };
+        out.push_str(&format!(
+            "{}\t{}\t{}\t{}\t{}\n",
+            ale_field(&name),
+            ale_field(&row_tape),
+            ale_field(&start),
+            ale_field(&fps),
+            ale_field(&duration),
+        ));
+    }
+    out
+}
+
+fn ale_field(s: &str) -> String {
+    // Avid ALE uses tabs as delimiters; sanitize any embedded tab/CR/LF
+    // by replacing with single spaces so the table layout stays intact.
+    s.chars()
+        .map(|c| {
+            if c == '\t' || c == '\n' || c == '\r' {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+fn seconds_to_timecode(seconds: f64, fps_num: u32, fps_den: u32) -> String {
+    if seconds <= 0.0 || fps_num == 0 || fps_den == 0 {
+        return String::new();
+    }
+    let fps = fps_num as f64 / fps_den as f64;
+    let total_frames = (seconds * fps).round() as u64;
+    let frames_per_second = fps.round() as u64;
+    if frames_per_second == 0 {
+        return String::new();
+    }
+    let frames = total_frames % frames_per_second;
+    let total_seconds = total_frames / frames_per_second;
+    let s = total_seconds % 60;
+    let m = (total_seconds / 60) % 60;
+    let h = total_seconds / 3600;
+    format!("{:02}:{:02}:{:02}:{:02}", h, m, s, frames)
+}
+
 /// Emit a JSON sidecar describing each scanned file plus its ffprobe
 /// metadata when present. Returns Err on serialization failure (rare).
 pub fn report_metadata_json(report: &OffloadReport) -> Result<String, String> {
@@ -474,6 +577,52 @@ mod tests {
         assert_eq!(v["files"][0]["media_kind"], "MXF");
         assert!(v["files"][0]["metadata"].is_null());
         assert_eq!(v["ignored_paths"][0], ".DS_Store");
+    }
+
+    #[test]
+    fn ale_export_has_required_sections() {
+        let report = make_test_report();
+        let ale = report_ale(&report);
+        assert!(ale.starts_with("Heading\n"));
+        assert!(ale.contains("FIELD_DELIM\tTABS"));
+        assert!(ale.contains("\nColumn\n"));
+        assert!(ale.contains("Name\tTape\tStart\tFPS\tDuration"));
+        assert!(ale.contains("\nData\n"));
+        // Names come from file stems
+        assert!(ale.contains("clip001"));
+        assert!(ale.contains("clip002"));
+        // Tape from project card_name
+        assert!(ale.contains("A001"));
+    }
+
+    #[test]
+    fn ale_uses_metadata_fps_and_duration_when_present() {
+        use crate::offload::ClipMetadata;
+        let mut report = make_test_report();
+        report.source_scan.files[0].metadata = Some(ClipMetadata {
+            video_codec: "prores".into(),
+            width: 1920,
+            height: 1080,
+            fps_num: 24000,
+            fps_den: 1001,
+            duration_seconds: 4.0,
+            audio_codec: String::new(),
+            audio_channels: 0,
+            audio_sample_rate: 0,
+            timecode: Some("01:00:00:00".into()),
+            color_space: String::new(),
+        });
+        let ale = report_ale(&report);
+        assert!(ale.contains("23.976"));
+        assert!(ale.contains("01:00:00:00"));
+    }
+
+    #[test]
+    fn seconds_to_timecode_basic() {
+        assert_eq!(super::seconds_to_timecode(0.0, 24, 1), "");
+        assert_eq!(super::seconds_to_timecode(10.0, 24, 1), "00:00:10:00");
+        assert_eq!(super::seconds_to_timecode(3661.0, 24, 1), "01:01:01:00");
+        assert_eq!(super::seconds_to_timecode(1.0, 0, 1), "");
     }
 
     #[test]

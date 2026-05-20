@@ -132,6 +132,7 @@ void DitOffloadWorker::run()
         report.metadataJsonExport =
             QString::fromUtf8(seder_report_export_metadata_json(handle));
     }
+    report.aleExport = QString::fromUtf8(seder_report_export_ale(handle));
 
     uint64_t totalFiles = 0, totalSize = 0;
     size_t destCount = 0;

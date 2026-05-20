@@ -357,6 +357,7 @@ void AppController::startOffload()
     m_canExportMhl = false;
     m_mhlExport.clear();
     m_metadataJsonExport.clear();
+    m_aleExport.clear();
     m_finalStatus = QStringLiteral("FAIL");
     m_verificationPerformed = false;
     emit exportStateChanged();
@@ -509,6 +510,7 @@ void AppController::startOffload()
         m_mhlExport = request.verifyAfterCopy ? report.mhlExport : QString();
         m_canExportMhl = request.verifyAfterCopy && !m_mhlExport.trimmed().isEmpty();
         m_metadataJsonExport = report.metadataJsonExport;
+        m_aleExport = report.aleExport;
         m_finalStatus = report.finalStatus;
         m_verificationPerformed = report.verificationPerformed;
         emit exportStateChanged();
@@ -580,6 +582,19 @@ void AppController::exportMetadataJson()
     writeExport(tr("Export Metadata JSON"),
                 QStringLiteral("seder-dit-metadata.json"),
                 m_metadataJsonExport);
+}
+
+void AppController::exportAle()
+{
+    if (m_aleExport.isEmpty()) {
+        setStatusText(QStringLiteral("No ALE to export."));
+        appendLog(QStringLiteral("ALE export skipped: no offload has completed yet."),
+                  LogSeverity::Warn);
+        return;
+    }
+    writeExport(tr("Export ALE (Avid Log Exchange)"),
+                QStringLiteral("seder-dit-report.ale"),
+                m_aleExport);
 }
 
 QString AppController::formatBytes(quint64 value) const

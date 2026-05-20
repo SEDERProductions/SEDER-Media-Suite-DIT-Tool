@@ -4,6 +4,7 @@ pub mod engine;
 pub mod ffprobe;
 pub mod hash;
 pub mod media;
+pub mod proxy;
 pub mod template;
 pub mod thumbnail;
 pub mod volume;

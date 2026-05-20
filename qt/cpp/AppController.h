@@ -100,6 +100,7 @@ public:
     Q_INVOKABLE void exportCsv();
     Q_INVOKABLE void exportMhl();
     Q_INVOKABLE void exportMetadataJson();
+    Q_INVOKABLE void exportAle();
     Q_INVOKABLE void clearLog();
     Q_INVOKABLE void copyLog();
     Q_INVOKABLE QString formatBytes(quint64 value) const;
@@ -159,6 +160,7 @@ private:
     QString m_checksumAlgorithm = QStringLiteral("BLAKE3");
     bool m_extractMetadata = false;
     QString m_metadataJsonExport;
+    QString m_aleExport;
     bool m_busy = false;
     double m_overallProgress = 0.0;
     QString m_statusText = QStringLiteral("Ready for offload.");

@@ -54,6 +54,7 @@ struct FinalReportData {
     QString csvExport;
     QString mhlExport;
     QString metadataJsonExport;
+    QString aleExport;
     quint64 totalFiles = 0;
     quint64 totalSize = 0;
     bool allPass = false;
