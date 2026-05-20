@@ -582,6 +582,72 @@ pub unsafe extern "C" fn seder_is_ltfs_volume(path: *const c_char) -> u8 {
     }
 }
 
+/// Save a crash-recovery checkpoint as JSON under `state_dir`. The
+/// `checkpoint_json` argument is the full serialized payload; the FFI
+/// keeps the schema opaque so the Qt side can ship richer fields
+/// without a Rust round-trip. Returns 1 on success, 0 on failure.
+#[no_mangle]
+pub unsafe extern "C" fn seder_checkpoint_save(
+    state_dir: *const c_char,
+    checkpoint_json: *const c_char,
+) -> u8 {
+    let result = catch_unwind(|| {
+        if state_dir.is_null() || checkpoint_json.is_null() {
+            return 0u8;
+        }
+        let dir = unsafe { cstr_to_string(state_dir) };
+        let payload = unsafe { cstr_to_string(checkpoint_json) };
+        let cp: crate::offload::checkpoint::Checkpoint = match serde_json::from_str(&payload) {
+            Ok(c) => c,
+            Err(_) => return 0,
+        };
+        match crate::offload::checkpoint::save(std::path::Path::new(&dir), &cp) {
+            Ok(_) => 1,
+            Err(_) => 0,
+        }
+    });
+    result.unwrap_or(0)
+}
+
+/// Load the latest checkpoint as a JSON string. Returns NULL if none
+/// exists or the file can't be parsed. Caller frees with seder_string_free.
+#[no_mangle]
+pub unsafe extern "C" fn seder_checkpoint_load(state_dir: *const c_char) -> *mut c_char {
+    let result = catch_unwind(|| {
+        if state_dir.is_null() {
+            return std::ptr::null_mut::<c_char>();
+        }
+        let dir = unsafe { cstr_to_string(state_dir) };
+        let cp = crate::offload::checkpoint::load(std::path::Path::new(&dir));
+        let cp = match cp {
+            Some(c) => c,
+            None => return std::ptr::null_mut(),
+        };
+        match serde_json::to_string(&cp) {
+            Ok(s) => match CString::new(s) {
+                Ok(c) => c.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+/// Delete the checkpoint file (idempotent). Returns 1 on success.
+#[no_mangle]
+pub unsafe extern "C" fn seder_checkpoint_clear(state_dir: *const c_char) -> u8 {
+    if state_dir.is_null() {
+        return 0;
+    }
+    let dir = unsafe { cstr_to_string(state_dir) };
+    if crate::offload::checkpoint::clear(std::path::Path::new(&dir)).is_ok() {
+        1
+    } else {
+        0
+    }
+}
+
 /// Transcode `media` into `proxies_root` using a named preset
 /// (PRORES / H264 / DNXHR — case-insensitive). Returns the
 /// heap-allocated output path on success, NULL on failure. Caller
