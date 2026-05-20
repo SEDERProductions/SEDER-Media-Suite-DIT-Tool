@@ -582,6 +582,35 @@ pub unsafe extern "C" fn seder_is_ltfs_volume(path: *const c_char) -> u8 {
     }
 }
 
+/// Compare two semver-ish version strings ("MAJOR.MINOR.PATCH",
+/// optionally with a leading "v"). Returns 1 if `latest` is strictly
+/// newer than `current`, 0 otherwise (including on parse failure).
+/// Used by the Qt side's opt-in update banner without pulling a Qt
+/// regex into the C++ surface for one comparison.
+#[no_mangle]
+pub unsafe extern "C" fn seder_version_is_newer(
+    current: *const c_char,
+    latest: *const c_char,
+) -> u8 {
+    if current.is_null() || latest.is_null() {
+        return 0;
+    }
+    let cur = unsafe { cstr_to_string(current) };
+    let lat = unsafe { cstr_to_string(latest) };
+    let parse = |s: &str| -> Option<(u32, u32, u32)> {
+        let trimmed = s.trim().trim_start_matches('v');
+        let mut parts = trimmed.split('.');
+        let a = parts.next()?.parse().ok()?;
+        let b = parts.next()?.parse().ok()?;
+        let c = parts.next().unwrap_or("0").parse().ok()?;
+        Some((a, b, c))
+    };
+    match (parse(&cur), parse(&lat)) {
+        (Some(c), Some(l)) if l > c => 1,
+        _ => 0,
+    }
+}
+
 /// Save a crash-recovery checkpoint as JSON under `state_dir`. The
 /// `checkpoint_json` argument is the full serialized payload; the FFI
 /// keeps the schema opaque so the Qt side can ship richer fields
@@ -824,6 +853,65 @@ fn chrono_nowish() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
+
+    fn cs(s: &str) -> CString {
+        CString::new(s).unwrap()
+    }
+
+    #[test]
+    fn version_is_newer_basic_comparisons() {
+        unsafe {
+            assert_eq!(
+                seder_version_is_newer(cs("1.0.0").as_ptr(), cs("1.0.1").as_ptr()),
+                1
+            );
+            assert_eq!(
+                seder_version_is_newer(cs("1.0.1").as_ptr(), cs("1.0.0").as_ptr()),
+                0
+            );
+            assert_eq!(
+                seder_version_is_newer(cs("1.0.0").as_ptr(), cs("1.0.0").as_ptr()),
+                0
+            );
+            assert_eq!(
+                seder_version_is_newer(cs("0.0.16").as_ptr(), cs("1.0.0").as_ptr()),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn version_is_newer_accepts_v_prefix() {
+        unsafe {
+            assert_eq!(
+                seder_version_is_newer(cs("v1.0.0").as_ptr(), cs("v1.0.1").as_ptr()),
+                1
+            );
+            assert_eq!(
+                seder_version_is_newer(cs("1.0.0").as_ptr(), cs("v1.0.1").as_ptr()),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn version_is_newer_handles_invalid_input() {
+        unsafe {
+            assert_eq!(
+                seder_version_is_newer(cs("garbage").as_ptr(), cs("1.0.0").as_ptr()),
+                0
+            );
+            assert_eq!(
+                seder_version_is_newer(cs("1.0.0").as_ptr(), cs("garbage").as_ptr()),
+                0
+            );
+            assert_eq!(
+                seder_version_is_newer(std::ptr::null(), cs("1.0.0").as_ptr()),
+                0
+            );
+        }
+    }
 
     #[test]
     fn chrono_nowish_format() {

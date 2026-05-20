@@ -108,6 +108,11 @@ const char *seder_report_export_ale(OffloadReportHandle *handle);
 /* 1 if the path resolves to an LTFS-mounted volume, 0 otherwise. */
 uint8_t seder_is_ltfs_volume(const char *path);
 
+/* Compare two MAJOR.MINOR.PATCH version strings (optionally prefixed
+ * with "v"). Returns 1 if `latest` is strictly newer than `current`,
+ * 0 otherwise (including on parse failure). */
+uint8_t seder_version_is_newer(const char *current, const char *latest);
+
 /* Crash-recovery checkpoint helpers. The JSON schema is opaque to
  * the FFI — pass through whatever the caller serialized.
  *   save: returns 1 on success, 0 on failure.
