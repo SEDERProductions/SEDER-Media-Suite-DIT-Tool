@@ -30,6 +30,10 @@ typedef struct SederOffloadRequest {
     /* NUL-terminated algorithm name: BLAKE3 / MD5 / SHA1 / XXH3-64 /
      * XXH3-128. Pass NULL to use the default (BLAKE3). */
     const char *checksum_algorithm;
+    /* When non-zero, ffprobe is invoked for each recognised media file
+     * and the result is included in the metadata JSON sidecar export.
+     * No-op if ffprobe isn't available on the host. */
+    uint8_t extract_metadata;
 } SederOffloadRequest;
 
 typedef struct SederDestinationProgress {
@@ -91,6 +95,15 @@ uint8_t seder_report_dest_state(
 );
 
 uint8_t seder_report_verification_performed(OffloadReportHandle *handle);
+
+/* Borrowed pointer to the JSON sidecar describing each file plus its
+ * ffprobe metadata. Empty when extract_metadata was disabled. */
+const char *seder_report_export_metadata_json(OffloadReportHandle *handle);
+
+/* 1 if ffprobe is discoverable on this host, 0 otherwise. */
+uint8_t seder_ffprobe_available(void);
+/* 1 if ffmpeg is discoverable on this host, 0 otherwise. */
+uint8_t seder_ffmpeg_available(void);
 
 /* Expand a destination template like "{project}/{date}/{card}". The
  * returned string is heap-allocated; release it with seder_string_free.

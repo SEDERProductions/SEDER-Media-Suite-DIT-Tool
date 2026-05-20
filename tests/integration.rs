@@ -22,6 +22,7 @@ fn make_options() -> OffloadOptions {
         skip_existing: false,
         generate_report: true,
         algorithm: ChecksumAlgo::Blake3,
+        extract_metadata: false,
     }
 }
 

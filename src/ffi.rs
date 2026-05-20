@@ -40,6 +40,10 @@ pub struct SederOffloadRequest {
     /// NUL-terminated algorithm name: BLAKE3 / MD5 / SHA1 / XXH3-64 /
     /// XXH3-128. NULL or an unrecognized value falls back to BLAKE3.
     pub checksum_algorithm: *const c_char,
+    /// When non-zero, run ffprobe on each recognised media file and
+    /// attach the resulting clip metadata to the report. Silently a
+    /// no-op when ffprobe isn't available on the host.
+    pub extract_metadata: u8,
 }
 
 #[repr(C)]
@@ -105,6 +109,7 @@ pub struct OffloadReportHandle {
     pub txt_export: CString,
     pub csv_export: CString,
     pub mhl_export: CString,
+    pub metadata_json_export: CString,
 }
 
 // ============================================================================
@@ -164,6 +169,7 @@ pub unsafe extern "C" fn seder_offload_start(
             skip_existing: req.skip_existing != 0,
             generate_report: req.generate_report != 0,
             algorithm,
+            extract_metadata: req.extract_metadata != 0,
         };
 
         let offload_request = OffloadRequest {
@@ -369,12 +375,18 @@ pub unsafe extern "C" fn seder_offload_start(
         } else {
             String::new()
         };
+        let metadata_json = if offload_request.options.extract_metadata {
+            report::report_metadata_json(&report).unwrap_or_default()
+        } else {
+            String::new()
+        };
 
         let handle = Box::new(OffloadReportHandle {
             report,
             txt_export: CString::new(txt).unwrap_or_default(),
             csv_export: CString::new(csv).unwrap_or_default(),
             mhl_export: CString::new(mhl).unwrap_or_default(),
+            metadata_json_export: CString::new(metadata_json).unwrap_or_default(),
         });
 
         Ok(Box::into_raw(handle))
@@ -523,6 +535,42 @@ pub unsafe extern "C" fn seder_report_verification_performed(
     }
     let report = unsafe { &(*handle).report };
     if report.verification_performed {
+        1
+    } else {
+        0
+    }
+}
+
+/// Borrowed pointer to the metadata JSON sidecar. Lifetime is the
+/// handle's. Empty C string if extract_metadata was disabled or no
+/// metadata was extracted.
+#[no_mangle]
+pub unsafe extern "C" fn seder_report_export_metadata_json(
+    handle: *mut OffloadReportHandle,
+) -> *const c_char {
+    if handle.is_null() {
+        return std::ptr::null();
+    }
+    unsafe { (*handle).metadata_json_export.as_ptr() }
+}
+
+/// 1 if ffprobe was discoverable at the moment of the call, 0 otherwise.
+/// Cheap to call repeatedly — this just walks PATH + fallback dirs.
+#[no_mangle]
+pub extern "C" fn seder_ffprobe_available() -> u8 {
+    if crate::offload::ffprobe::discover().is_some() {
+        1
+    } else {
+        0
+    }
+}
+
+/// 1 if ffmpeg was discoverable, 0 otherwise. Reserved for the upcoming
+/// proxy-generation phase; exposed now so the UI can show a unified
+/// "ffmpeg suite available" badge.
+#[no_mangle]
+pub extern "C" fn seder_ffmpeg_available() -> u8 {
+    if crate::offload::ffprobe::discover_ffmpeg().is_some() {
         1
     } else {
         0

@@ -23,6 +23,10 @@ class AppController final : public QObject {
     Q_PROPERTY(bool skipExisting READ skipExisting WRITE setSkipExisting NOTIFY skipExistingChanged)
     Q_PROPERTY(bool generateReport READ generateReport WRITE setGenerateReport NOTIFY generateReportChanged)
     Q_PROPERTY(QString checksumAlgorithm READ checksumAlgorithm WRITE setChecksumAlgorithm NOTIFY checksumAlgorithmChanged)
+    Q_PROPERTY(bool extractMetadata READ extractMetadata WRITE setExtractMetadata NOTIFY extractMetadataChanged)
+    Q_PROPERTY(bool ffprobeAvailable READ ffprobeAvailable CONSTANT)
+    Q_PROPERTY(bool ffmpegAvailable READ ffmpegAvailable CONSTANT)
+    Q_PROPERTY(bool canExportMetadataJson READ canExportMetadataJson NOTIFY canExportMetadataJsonChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(double overallProgress READ overallProgress NOTIFY overallProgressChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
@@ -65,6 +69,11 @@ public:
     void setGenerateReport(bool value);
     QString checksumAlgorithm() const;
     void setChecksumAlgorithm(const QString &value);
+    bool extractMetadata() const;
+    void setExtractMetadata(bool value);
+    bool ffprobeAvailable() const;
+    bool ffmpegAvailable() const;
+    bool canExportMetadataJson() const;
     bool busy() const;
     double overallProgress() const;
     QString statusText() const;
@@ -90,6 +99,7 @@ public:
     Q_INVOKABLE void exportTxt();
     Q_INVOKABLE void exportCsv();
     Q_INVOKABLE void exportMhl();
+    Q_INVOKABLE void exportMetadataJson();
     Q_INVOKABLE void clearLog();
     Q_INVOKABLE void copyLog();
     Q_INVOKABLE QString formatBytes(quint64 value) const;
@@ -108,6 +118,8 @@ signals:
     void skipExistingChanged();
     void generateReportChanged();
     void checksumAlgorithmChanged();
+    void extractMetadataChanged();
+    void canExportMetadataJsonChanged();
     void busyChanged();
     void overallProgressChanged();
     void statusTextChanged();
@@ -145,6 +157,8 @@ private:
     bool m_skipExisting = false;
     bool m_generateReport = true;
     QString m_checksumAlgorithm = QStringLiteral("BLAKE3");
+    bool m_extractMetadata = false;
+    QString m_metadataJsonExport;
     bool m_busy = false;
     double m_overallProgress = 0.0;
     QString m_statusText = QStringLiteral("Ready for offload.");

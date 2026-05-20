@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 
 pub mod engine;
+pub mod ffprobe;
 pub mod hash;
 pub mod media;
 pub mod template;
 pub mod volume;
 
+pub use ffprobe::ClipMetadata;
 pub use hash::ChecksumAlgo;
 
 #[derive(Debug, Clone)]
@@ -31,6 +33,10 @@ pub struct OffloadOptions {
     pub skip_existing: bool,
     pub generate_report: bool,
     pub algorithm: ChecksumAlgo,
+    /// When true, scan_source will additionally invoke ffprobe on each
+    /// recognised media file and attach a ClipMetadata to its FileEntry.
+    /// Silently a no-op if ffprobe isn't available on the host.
+    pub extract_metadata: bool,
 }
 
 impl Default for OffloadOptions {
@@ -43,6 +49,7 @@ impl Default for OffloadOptions {
             skip_existing: false,
             generate_report: true,
             algorithm: ChecksumAlgo::Blake3,
+            extract_metadata: false,
         }
     }
 }
@@ -72,6 +79,8 @@ pub struct FileEntry {
     pub size: u64,
     pub source_hash: String,
     pub algorithm: ChecksumAlgo,
+    /// Populated only when extract_metadata was on and ffprobe succeeded.
+    pub metadata: Option<ClipMetadata>,
 }
 
 #[derive(Debug, Clone)]

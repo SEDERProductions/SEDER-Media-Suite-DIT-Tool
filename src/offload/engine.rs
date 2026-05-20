@@ -1,4 +1,6 @@
+use crate::offload::ffprobe;
 use crate::offload::hash::ChecksumAlgo;
+use crate::offload::media::{classify, MediaKind};
 use crate::offload::*;
 use crossbeam_channel::{bounded, Sender};
 use globset::{Glob, GlobSetBuilder};
@@ -84,6 +86,14 @@ pub fn scan_source(
     let mut total_files = 0u64;
     let mut buf = vec![0u8; CHUNK_SIZE];
 
+    // Discover ffprobe once per scan; if not available, treat
+    // extract_metadata as a no-op for this run.
+    let ffprobe_path = if options.extract_metadata {
+        ffprobe::discover()
+    } else {
+        None
+    };
+
     let ignore_glob = if !options.ignore_patterns.is_empty() {
         let mut builder = GlobSetBuilder::new();
         for p in &options.ignore_patterns {
@@ -139,11 +149,36 @@ pub fn scan_source(
         }
         let hash = hasher.finalize_hex();
 
+        // Best-effort metadata probe for recognised media kinds.
+        let metadata = if let Some(ref ffprobe_bin) = ffprobe_path {
+            let kind = classify(&rel_str);
+            if matches!(
+                kind,
+                MediaKind::R3d
+                    | MediaKind::Arri
+                    | MediaKind::Braw
+                    | MediaKind::CanonRaw
+                    | MediaKind::CinemaDng
+                    | MediaKind::Mxf
+                    | MediaKind::Mov
+                    | MediaKind::Mp4
+                    | MediaKind::MpegTs
+                    | MediaKind::Audio
+            ) {
+                ffprobe::probe(path, ffprobe_bin).ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         files.push(FileEntry {
             relative_path: rel_str,
             size,
             source_hash: hash,
             algorithm: options.algorithm,
+            metadata,
         });
 
         progress(total_files, total_size);

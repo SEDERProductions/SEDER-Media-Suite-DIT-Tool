@@ -24,6 +24,7 @@ struct OffloadRequestData {
     bool syncWrites = true;
     bool skipExisting = false;
     bool generateReport = true;
+    bool extractMetadata = false;
 };
 
 struct DestinationProgressData {
@@ -52,6 +53,7 @@ struct FinalReportData {
     QString txtExport;
     QString csvExport;
     QString mhlExport;
+    QString metadataJsonExport;
     quint64 totalFiles = 0;
     quint64 totalSize = 0;
     bool allPass = false;

@@ -94,6 +94,7 @@ void DitOffloadWorker::run()
     req.generate_report = m_request.generateReport ? 1 : 0;
     req.cancel_token = reinterpret_cast<uint8_t *>(&m_cancelToken);
     req.checksum_algorithm = m_request.checksumAlgorithm.isEmpty() ? nullptr : checksumAlgo.constData();
+    req.extract_metadata = m_request.extractMetadata ? 1 : 0;
 
     char *errorOut = nullptr;
     OffloadReportHandle *handle = seder_offload_start(&req, &DitOffloadWorker::progressTrampoline, this, &errorOut);
@@ -126,6 +127,10 @@ void DitOffloadWorker::run()
     report.checksumVerified = m_request.verifyAfterCopy;
     if (report.checksumVerified) {
         report.mhlExport = QString::fromUtf8(seder_report_export_mhl(handle));
+    }
+    if (m_request.extractMetadata) {
+        report.metadataJsonExport =
+            QString::fromUtf8(seder_report_export_metadata_json(handle));
     }
 
     uint64_t totalFiles = 0, totalSize = 0;

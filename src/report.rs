@@ -207,6 +207,42 @@ pub fn report_mhl(report: &OffloadReport, destination_index: usize) -> Result<St
     Ok(out)
 }
 
+/// Emit a JSON sidecar describing each scanned file plus its ffprobe
+/// metadata when present. Returns Err on serialization failure (rare).
+pub fn report_metadata_json(report: &OffloadReport) -> Result<String, String> {
+    let entries: Vec<serde_json::Value> = report
+        .source_scan
+        .files
+        .iter()
+        .map(|f| {
+            let media_kind = crate::offload::media::classify(&f.relative_path);
+            serde_json::json!({
+                "path": f.relative_path,
+                "size": f.size,
+                "hash_algorithm": f.algorithm.as_str(),
+                "hash": f.source_hash,
+                "media_kind": media_kind.as_str(),
+                "metadata": f.metadata,
+            })
+        })
+        .collect();
+    let doc = serde_json::json!({
+        "generator": {
+            "name": "SEDER DIT Tool",
+            "version": env!("CARGO_PKG_VERSION"),
+        },
+        "timestamp": report.timestamp,
+        "source": report.source_path,
+        "project": report.metadata.project_name,
+        "shoot_date": report.metadata.shoot_date,
+        "card": report.metadata.card_name,
+        "camera": report.metadata.camera_id,
+        "files": entries,
+        "ignored_paths": report.source_scan.ignored_paths,
+    });
+    serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())
+}
+
 fn csv_field(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
@@ -256,12 +292,14 @@ mod tests {
                         size: 1024 * 1024,
                         source_hash: "abc123hash".into(),
                         algorithm: ChecksumAlgo::Blake3,
+                        metadata: None,
                     },
                     FileEntry {
                         relative_path: "clip002.mxf".into(),
                         size: 2048 * 1024,
                         source_hash: "def456hash".into(),
                         algorithm: ChecksumAlgo::Blake3,
+                        metadata: None,
                     },
                 ],
                 total_size: 3 * 1024 * 1024,
@@ -422,5 +460,43 @@ mod tests {
         assert_eq!(xml_escape("<tag>"), "&lt;tag&gt;");
         assert_eq!(xml_escape("a & b"), "a &amp; b");
         assert_eq!(xml_escape("\"quoted\""), "&quot;quoted&quot;");
+    }
+
+    #[test]
+    fn metadata_json_includes_files_and_ignored_paths() {
+        let mut report = make_test_report();
+        report.source_scan.ignored_paths = vec![".DS_Store".into()];
+        let json = report_metadata_json(&report).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["project"], "Test Project");
+        assert_eq!(v["files"][0]["path"], "clip001.mxf");
+        assert_eq!(v["files"][0]["hash_algorithm"], "BLAKE3");
+        assert_eq!(v["files"][0]["media_kind"], "MXF");
+        assert!(v["files"][0]["metadata"].is_null());
+        assert_eq!(v["ignored_paths"][0], ".DS_Store");
+    }
+
+    #[test]
+    fn metadata_json_serializes_clip_metadata_when_present() {
+        use crate::offload::ClipMetadata;
+        let mut report = make_test_report();
+        report.source_scan.files[0].metadata = Some(ClipMetadata {
+            video_codec: "prores".into(),
+            width: 1920,
+            height: 1080,
+            fps_num: 24000,
+            fps_den: 1001,
+            duration_seconds: 10.5,
+            audio_codec: "pcm_s16le".into(),
+            audio_channels: 2,
+            audio_sample_rate: 48000,
+            timecode: Some("01:00:00:00".into()),
+            color_space: "bt709".into(),
+        });
+        let json = report_metadata_json(&report).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["files"][0]["metadata"]["video_codec"], "prores");
+        assert_eq!(v["files"][0]["metadata"]["width"], 1920);
+        assert_eq!(v["files"][0]["metadata"]["timecode"], "01:00:00:00");
     }
 }

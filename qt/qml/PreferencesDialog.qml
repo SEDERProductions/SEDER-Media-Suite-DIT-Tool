@@ -14,6 +14,7 @@ Dialog {
     readonly property color faint: dark ? "#716a5f" : "#7a7363"
     readonly property color panel: dark ? "#1f1d1a" : "#f8f4ea"
     readonly property color line: dark ? "#3a352e" : "#d6cfbe"
+    readonly property color warn: dark ? "#c99746" : "#9a6a16"
     readonly property string sans: "Manrope, Helvetica Neue, Helvetica, Arial, sans-serif"
     readonly property string mono: "Menlo, Consolas, monospace"
 
@@ -160,6 +161,36 @@ Dialog {
                 : "(no template — destination folder used as-is)")
             color: muted
             font.family: mono
+            font.pixelSize: 11
+        }
+
+        Rectangle { Layout.fillWidth: true; height: 1; color: line }
+
+        Text {
+            text: "Clip metadata extraction"
+            color: ink
+            font.family: sans
+            font.pixelSize: 13
+            font.bold: true
+        }
+        StyledCheckBox {
+            text: "Extract clip metadata with ffprobe during scan"
+            enabled: appController.ffprobeAvailable
+            checked: settingsStore.defaultExtractMetadata && appController.ffprobeAvailable
+            onToggled: settingsStore.defaultExtractMetadata = checked
+        }
+        Text {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: appController.ffprobeAvailable
+                ? "ffprobe was found on this system. Extracting metadata makes scans slower but "
+                  + "produces a JSON sidecar describing codec, resolution, frame rate, duration, "
+                  + "audio, color space, and timecode for each clip."
+                : "ffprobe was not found on this system. Install FFmpeg (brew install ffmpeg, "
+                  + "apt-get install ffmpeg, or https://www.ffmpeg.org/download.html) and relaunch "
+                  + "the app to enable this option."
+            color: appController.ffprobeAvailable ? faint : warn
+            font.family: sans
             font.pixelSize: 11
         }
 

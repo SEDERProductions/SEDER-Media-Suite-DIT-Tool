@@ -14,6 +14,7 @@ constexpr const char *kKeyDefaultSkipExisting = "dit/defaults/skipExisting";
 constexpr const char *kKeyDefaultGenerateReport = "dit/defaults/generateReport";
 constexpr const char *kKeyDefaultChecksumAlgorithm = "dit/defaults/checksumAlgorithm";
 constexpr const char *kKeyDestinationTemplate = "dit/defaults/destinationTemplate";
+constexpr const char *kKeyDefaultExtractMetadata = "dit/defaults/extractMetadata";
 constexpr const char *kKeyWindowGeometry = "dit/window/geometry";
 constexpr const char *kKeyLastProject = "dit/lastMetadata/projectName";
 constexpr const char *kKeyLastShootDate = "dit/lastMetadata/shootDate";
@@ -47,6 +48,7 @@ void SettingsStore::load()
     m_defaultChecksumAlgorithm = s.value(QString::fromLatin1(kKeyDefaultChecksumAlgorithm),
                                           QStringLiteral("BLAKE3")).toString();
     m_destinationTemplate = s.value(QString::fromLatin1(kKeyDestinationTemplate)).toString();
+    m_defaultExtractMetadata = s.value(QString::fromLatin1(kKeyDefaultExtractMetadata), false).toBool();
     m_lastProjectName = s.value(QString::fromLatin1(kKeyLastProject)).toString();
     m_lastShootDate = s.value(QString::fromLatin1(kKeyLastShootDate)).toString();
     m_lastCardName = s.value(QString::fromLatin1(kKeyLastCardName)).toString();
@@ -62,6 +64,7 @@ bool SettingsStore::defaultSkipExisting() const { return m_defaultSkipExisting; 
 bool SettingsStore::defaultGenerateReport() const { return m_defaultGenerateReport; }
 QString SettingsStore::defaultChecksumAlgorithm() const { return m_defaultChecksumAlgorithm; }
 QString SettingsStore::destinationTemplate() const { return m_destinationTemplate; }
+bool SettingsStore::defaultExtractMetadata() const { return m_defaultExtractMetadata; }
 
 QString SettingsStore::lastProjectName() const { return m_lastProjectName; }
 QString SettingsStore::lastShootDate() const { return m_lastShootDate; }
@@ -131,6 +134,14 @@ void SettingsStore::setDestinationTemplate(const QString &value)
     emit destinationTemplateChanged();
 }
 
+void SettingsStore::setDefaultExtractMetadata(bool value)
+{
+    if (m_defaultExtractMetadata == value) return;
+    m_defaultExtractMetadata = value;
+    settings().setValue(QString::fromLatin1(kKeyDefaultExtractMetadata), value);
+    emit defaultExtractMetadataChanged();
+}
+
 QRect SettingsStore::windowGeometry() const
 {
     return settings().value(QString::fromLatin1(kKeyWindowGeometry)).toRect();
@@ -196,4 +207,5 @@ void SettingsStore::resetDefaultsToFactory()
     setDefaultGenerateReport(true);
     setDefaultChecksumAlgorithm(QStringLiteral("BLAKE3"));
     setDestinationTemplate(QString());
+    setDefaultExtractMetadata(false);
 }

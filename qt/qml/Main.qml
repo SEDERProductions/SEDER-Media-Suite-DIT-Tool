@@ -44,6 +44,11 @@ ApplicationWindow {
                 enabled: appController.canExportMhl
                 onTriggered: appController.exportMhl()
             }
+            Platform.MenuItem {
+                text: "Export Metadata JSON…"
+                enabled: appController.canExportMetadataJson
+                onTriggered: appController.exportMetadataJson()
+            }
             Platform.MenuSeparator {}
             Platform.MenuItem {
                 text: "Quit"

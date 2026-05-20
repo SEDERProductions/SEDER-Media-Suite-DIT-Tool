@@ -38,6 +38,7 @@ AppController::AppController(SettingsStore *settings, QObject *parent)
         m_skipExisting = m_settings->defaultSkipExisting();
         m_generateReport = m_settings->defaultGenerateReport();
         m_checksumAlgorithm = m_settings->defaultChecksumAlgorithm();
+        m_extractMetadata = m_settings->defaultExtractMetadata();
         m_projectName = m_settings->lastProjectName();
         m_shootDate = m_settings->lastShootDate();
         m_cardName = m_settings->lastCardName();
@@ -77,6 +78,16 @@ void AppController::setSkipExisting(bool value) { if (m_skipExisting != value) {
 bool AppController::generateReport() const { return m_generateReport; }
 void AppController::setGenerateReport(bool value) { if (m_generateReport != value) { m_generateReport = value; emit generateReportChanged(); } }
 QString AppController::checksumAlgorithm() const { return m_checksumAlgorithm; }
+bool AppController::extractMetadata() const { return m_extractMetadata; }
+void AppController::setExtractMetadata(bool value)
+{
+    if (m_extractMetadata == value) return;
+    m_extractMetadata = value;
+    emit extractMetadataChanged();
+}
+bool AppController::ffprobeAvailable() const { return seder_ffprobe_available() != 0; }
+bool AppController::ffmpegAvailable() const { return seder_ffmpeg_available() != 0; }
+bool AppController::canExportMetadataJson() const { return !m_metadataJsonExport.isEmpty(); }
 void AppController::setChecksumAlgorithm(const QString &value)
 {
     const QString upper = value.trimmed().toUpper();
@@ -205,6 +216,7 @@ void AppController::applyDefaultsFromSettings()
     setSkipExisting(m_settings->defaultSkipExisting());
     setGenerateReport(m_settings->defaultGenerateReport());
     setChecksumAlgorithm(m_settings->defaultChecksumAlgorithm());
+    setExtractMetadata(m_settings->defaultExtractMetadata());
 }
 
 void AppController::copyDestinationPath(int sourceIndex)
@@ -322,6 +334,7 @@ void AppController::startOffload()
     request.cameraId = m_cameraId;
     request.ignorePatterns = m_ignorePatterns;
     request.checksumAlgorithm = m_checksumAlgorithm;
+    request.extractMetadata = m_extractMetadata && ffprobeAvailable();
     request.ignoreHiddenSystem = m_ignoreHiddenSystem;
     request.verifyAfterCopy = m_verifyAfterCopy;
     request.skipExisting = m_skipExisting;
@@ -343,6 +356,7 @@ void AppController::startOffload()
     m_canExport = false;
     m_canExportMhl = false;
     m_mhlExport.clear();
+    m_metadataJsonExport.clear();
     m_finalStatus = QStringLiteral("FAIL");
     m_verificationPerformed = false;
     emit exportStateChanged();
@@ -494,10 +508,12 @@ void AppController::startOffload()
         m_canExport = true;
         m_mhlExport = request.verifyAfterCopy ? report.mhlExport : QString();
         m_canExportMhl = request.verifyAfterCopy && !m_mhlExport.trimmed().isEmpty();
+        m_metadataJsonExport = report.metadataJsonExport;
         m_finalStatus = report.finalStatus;
         m_verificationPerformed = report.verificationPerformed;
         emit exportStateChanged();
         emit canExportMhlChanged();
+        emit canExportMetadataJsonChanged();
         emit summaryChanged();
     });
     connect(worker, &DitOffloadWorker::failed, this, [this](const QString &message) {
@@ -550,6 +566,20 @@ void AppController::exportMhl()
         return;
     }
     writeExport(tr("Export MHL Report"), QStringLiteral("seder-dit-report.mhl"), m_mhlExport);
+}
+
+void AppController::exportMetadataJson()
+{
+    if (!canExportMetadataJson()) {
+        setStatusText(QStringLiteral("No metadata JSON to export."));
+        appendLog(QStringLiteral("Metadata JSON export skipped: extract metadata was not enabled "
+                                 "or ffprobe was not available."),
+                  LogSeverity::Warn);
+        return;
+    }
+    writeExport(tr("Export Metadata JSON"),
+                QStringLiteral("seder-dit-metadata.json"),
+                m_metadataJsonExport);
 }
 
 QString AppController::formatBytes(quint64 value) const
