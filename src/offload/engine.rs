@@ -147,6 +147,7 @@ pub fn offload_files(
     let overall_bytes_total = scan.total_size;
     let mut overall_bytes_completed = 0u64;
     let mut verify_buf = vec![0u8; CHUNK_SIZE];
+    let mut dest_completed_counts = vec![0u64; destinations.len()];
 
     for (idx, file_entry) in scan.files.iter().enumerate() {
         let overall_files_completed = (idx + 1) as u64;
@@ -250,13 +251,24 @@ pub fn offload_files(
 
         overall_bytes_completed += file_entry.size;
 
+        for (i, status) in dest_file_status.iter().enumerate() {
+            let completed = if verify {
+                matches!(status, FileTransferStatus::Verified | FileTransferStatus::Skipped)
+            } else {
+                matches!(status, FileTransferStatus::Copied | FileTransferStatus::Skipped)
+            };
+            if completed {
+                dest_completed_counts[i] += 1;
+            }
+        }
+
         let dest_progress: Vec<DestinationProgress> = results
             .iter()
             .enumerate()
             .map(|(i, r)| DestinationProgress {
                 index: i,
                 state: r.state,
-                files_completed: r.files_copied + r.files_verified + r.files_skipped,
+                files_completed: dest_completed_counts[i],
                 files_total: overall_files_total,
                 bytes_completed: r.bytes_copied,
                 bytes_total: overall_bytes_total,
@@ -564,4 +576,84 @@ mod tests {
         let mut buf = vec![0u8; CHUNK_SIZE];
         assert!(verify_file(&path, &wrong_hash, &mut buf).is_err());
     }
+    #[test]
+    fn offload_progress_files_completed_never_exceeds_total_without_verify() {
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("a.txt"), b"a").unwrap();
+        std::fs::write(src.path().join("b.txt"), b"b").unwrap();
+
+        let mut scan_progress = |_, _| {};
+        let scan = scan_source(src.path(), &OffloadOptions::default(), &mut scan_progress).unwrap();
+
+        let dest = tempfile::tempdir().unwrap();
+        let destinations = vec![DestinationConfig {
+            path: dest.path().to_path_buf(),
+            label: Some("dest".into()),
+        }];
+
+        let cancel = AtomicBool::new(false);
+        let mut warnings = Vec::new();
+        let mut snapshots = Vec::new();
+
+        offload_files(
+            src.path(),
+            &scan,
+            &destinations,
+            false,
+            &cancel,
+            &mut |p| snapshots.push(p),
+            false,
+            false,
+            &mut warnings,
+        )
+        .unwrap();
+
+        assert!(!snapshots.is_empty());
+        for progress in snapshots {
+            for d in progress.destinations {
+                assert!(d.files_completed <= d.files_total);
+            }
+        }
+    }
+
+    #[test]
+    fn offload_progress_files_completed_never_exceeds_total_with_verify() {
+        let src = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("a.txt"), b"a").unwrap();
+        std::fs::write(src.path().join("b.txt"), b"b").unwrap();
+
+        let mut scan_progress = |_, _| {};
+        let scan = scan_source(src.path(), &OffloadOptions::default(), &mut scan_progress).unwrap();
+
+        let dest = tempfile::tempdir().unwrap();
+        let destinations = vec![DestinationConfig {
+            path: dest.path().to_path_buf(),
+            label: Some("dest".into()),
+        }];
+
+        let cancel = AtomicBool::new(false);
+        let mut warnings = Vec::new();
+        let mut snapshots = Vec::new();
+
+        offload_files(
+            src.path(),
+            &scan,
+            &destinations,
+            true,
+            &cancel,
+            &mut |p| snapshots.push(p),
+            false,
+            false,
+            &mut warnings,
+        )
+        .unwrap();
+
+        assert!(!snapshots.is_empty());
+        for progress in snapshots {
+            for d in progress.destinations {
+                assert!(d.files_completed <= d.files_total);
+            }
+        }
+    }
+
 }
