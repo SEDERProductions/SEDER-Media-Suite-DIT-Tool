@@ -207,9 +207,11 @@ if(BUILD_TESTING)
         cpp/DestinationItem.h
         cpp/DestinationListModel.cpp
         cpp/DestinationListModel.h
+        cpp/DitOffloadWorker.cpp
+        cpp/DitOffloadWorker.h
         cpp/seder_ffi.h
     )
     target_include_directories(dit_model_tests PRIVATE cpp)
-    target_link_libraries(dit_model_tests PRIVATE Qt6::Core Qt6::Test)
+    target_link_libraries(dit_model_tests PRIVATE Qt6::Core Qt6::Test seder_dit_rust)
     add_test(NAME dit_model_tests COMMAND dit_model_tests)
 endif()
