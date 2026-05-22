@@ -45,6 +45,9 @@ install_manifest.txt
 *.log
 *.tmp
 *.bak
+
+# Claude Code personal settings
+.claude/settings.local.json
 # Generated icon derivatives (source of truth: assets/icon.svg)
 assets/icon-16.png
 assets/icon-32.png
