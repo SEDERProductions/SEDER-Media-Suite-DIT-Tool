@@ -338,6 +338,7 @@ pub fn offload_files(
             .map(|(i, r)| DestinationProgress {
                 index: i,
                 state: r.state,
+                // Copy-phase progress counts terminal copy outcomes only.
                 files_completed: r.files_copied + r.files_skipped + r.files_failed,
                 files_total: overall_files_total,
                 bytes_completed: r.bytes_copied,
@@ -366,7 +367,9 @@ pub fn offload_files(
                 .map(|(i, r)| DestinationProgress {
                     index: i,
                     state: r.state,
-                    files_completed: r.files_copied + r.files_verified + r.files_skipped,
+                    // Verify-phase progress should count only verify outcomes and failed copies
+                    // to avoid double-counting copied+verified for the same source file.
+                    files_completed: r.files_verified + r.files_skipped + r.files_failed,
                     files_total: overall_files_total,
                     bytes_completed: r.bytes_copied,
                     bytes_total: overall_bytes_total,
@@ -802,6 +805,51 @@ mod tests {
         .unwrap();
 
         assert_eq!(phases, vec!["copying".to_string(), "verifying".to_string()]);
+    }
+
+    #[test]
+    fn offload_files_progress_files_completed_never_exceeds_total_for_copy_and_verify() {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("a.mxf"), b"aaa").unwrap();
+        std::fs::write(src.path().join("b.mxf"), b"bbb").unwrap();
+
+        let scan = scan_source(src.path(), &OffloadOptions::default(), &mut |_, _| {}).unwrap();
+        let destinations = vec![DestinationConfig {
+            path: dst.path().to_path_buf(),
+            label: Some("A".into()),
+        }];
+        let cancel = AtomicBool::new(false);
+        let mut warnings = Vec::new();
+        let mut progress_events = Vec::new();
+
+        offload_files(
+            src.path(),
+            &scan,
+            &destinations,
+            true,
+            &cancel,
+            &mut |p| progress_events.push(p),
+            false,
+            false,
+            &mut warnings,
+        )
+        .unwrap();
+
+        assert!(progress_events.iter().any(|p| p.phase == "copying"));
+        assert!(progress_events.iter().any(|p| p.phase == "verifying"));
+
+        for event in progress_events {
+            for dest in event.destinations {
+                assert!(
+                    dest.files_completed <= dest.files_total,
+                    "phase={}, completed={}, total={}",
+                    event.phase,
+                    dest.files_completed,
+                    dest.files_total
+                );
+            }
+        }
     }
 
     #[test]
