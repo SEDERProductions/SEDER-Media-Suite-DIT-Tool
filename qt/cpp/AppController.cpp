@@ -235,6 +235,8 @@ void AppController::startOffload()
             setStatusText(QStringLiteral("Scanning source..."));
         } else if (update.phase == QStringLiteral("verifying")) {
             setStatusText(QStringLiteral("Verifying copies..."));
+        } else if (update.phase == QStringLiteral("copying")) {
+            setStatusText(QStringLiteral("Copying files..."));
         } else {
             setStatusText(QStringLiteral("Copying files..."));
         }

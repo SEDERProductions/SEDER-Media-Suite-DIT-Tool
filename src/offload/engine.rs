@@ -180,8 +180,11 @@ pub fn offload_files(
 
         warnings.extend(file_warnings);
 
-        let mut dest_file_status: Vec<FileTransferStatus> =
+        let mut copy_file_status: Vec<FileTransferStatus> =
             vec![FileTransferStatus::None; destinations.len()];
+        let mut verify_file_status: Vec<FileTransferStatus> =
+            vec![FileTransferStatus::None; destinations.len()];
+        let mut verification_performed_for_file = false;
 
         match copy_result {
             Ok(statuses) => {
@@ -203,7 +206,8 @@ pub fn offload_files(
                                 ) {
                                     Ok(()) => {
                                         results[idx].files_verified += 1;
-                                        dest_file_status[idx] = FileTransferStatus::Verified;
+                                        verify_file_status[idx] = FileTransferStatus::Verified;
+                                        verification_performed_for_file = true;
                                     }
                                     Err(e) => {
                                         results[idx].files_failed += 1;
@@ -211,17 +215,18 @@ pub fn offload_files(
                                             "{}: verify failed - {}",
                                             file_entry.relative_path, e
                                         ));
-                                        dest_file_status[idx] = FileTransferStatus::Failed;
+                                        verify_file_status[idx] = FileTransferStatus::Failed;
+                                        verification_performed_for_file = true;
                                     }
                                 }
                             } else {
-                                dest_file_status[idx] = FileTransferStatus::Copied;
+                                copy_file_status[idx] = FileTransferStatus::Copied;
                             }
                         }
                         FileCopyStatus::Skipped => {
                             results[idx].files_skipped += 1;
                             results[idx].state = DestinationState::Copying;
-                            dest_file_status[idx] = FileTransferStatus::Skipped;
+                            copy_file_status[idx] = FileTransferStatus::Skipped;
                         }
                         FileCopyStatus::Failed(err) => {
                             results[idx].files_failed += 1;
@@ -230,7 +235,7 @@ pub fn offload_files(
                                 results[idx].final_error =
                                     Some(format!("{}: {}", file_entry.relative_path, err));
                             }
-                            dest_file_status[idx] = FileTransferStatus::Failed;
+                            copy_file_status[idx] = FileTransferStatus::Failed;
                         }
                     }
                 }
@@ -243,14 +248,14 @@ pub fn offload_files(
                         r.final_error =
                             Some(format!("{}: copy failed - {}", file_entry.relative_path, e));
                     }
-                    dest_file_status[idx] = FileTransferStatus::Failed;
+                    copy_file_status[idx] = FileTransferStatus::Failed;
                 }
             }
         }
 
         overall_bytes_completed += file_entry.size;
 
-        let dest_progress: Vec<DestinationProgress> = results
+        let copy_dest_progress: Vec<DestinationProgress> = results
             .iter()
             .enumerate()
             .map(|(i, r)| DestinationProgress {
@@ -261,25 +266,50 @@ pub fn offload_files(
                 bytes_completed: r.bytes_copied,
                 bytes_total: overall_bytes_total,
                 current_file: file_entry.relative_path.clone(),
-                last_file_status: dest_file_status[i],
+                last_file_status: copy_file_status[i],
                 error: r.final_error.clone(),
             })
             .collect();
 
         progress(OffloadProgress {
-            phase: if verify {
-                "verifying".into()
-            } else {
-                "copying".into()
-            },
+            phase: "copying".into(),
             overall_files_completed,
             overall_files_total,
             overall_bytes_completed,
             overall_bytes_total,
             current_file: file_entry.relative_path.clone(),
-            destinations: dest_progress,
+            destinations: copy_dest_progress,
             warnings: warnings.clone(),
         });
+
+        if verify && verification_performed_for_file {
+            let verify_dest_progress: Vec<DestinationProgress> = results
+                .iter()
+                .enumerate()
+                .map(|(i, r)| DestinationProgress {
+                    index: i,
+                    state: r.state,
+                    files_completed: r.files_copied + r.files_verified + r.files_skipped,
+                    files_total: overall_files_total,
+                    bytes_completed: r.bytes_copied,
+                    bytes_total: overall_bytes_total,
+                    current_file: file_entry.relative_path.clone(),
+                    last_file_status: verify_file_status[i],
+                    error: r.final_error.clone(),
+                })
+                .collect();
+
+            progress(OffloadProgress {
+                phase: "verifying".into(),
+                overall_files_completed,
+                overall_files_total,
+                overall_bytes_completed,
+                overall_bytes_total,
+                current_file: file_entry.relative_path.clone(),
+                destinations: verify_dest_progress,
+                warnings: warnings.clone(),
+            });
+        }
     }
 
     for r in &mut results {
@@ -563,5 +593,68 @@ mod tests {
         let wrong_hash = blake3::hash(b"different data").to_hex().to_string();
         let mut buf = vec![0u8; CHUNK_SIZE];
         assert!(verify_file(&path, &wrong_hash, &mut buf).is_err());
+    }
+
+    #[test]
+    fn offload_files_emits_copying_then_verifying_when_verify_enabled() {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("clip.mxf"), b"abc123").unwrap();
+
+        let scan = scan_source(src.path(), &OffloadOptions::default(), &mut |_, _| {}).unwrap();
+        let destinations = vec![DestinationConfig {
+            path: dst.path().to_path_buf(),
+            label: Some("A".into()),
+        }];
+        let cancel = AtomicBool::new(false);
+        let mut warnings = Vec::new();
+        let mut phases = Vec::new();
+
+        offload_files(
+            src.path(),
+            &scan,
+            &destinations,
+            true,
+            &cancel,
+            &mut |p| phases.push(p.phase),
+            false,
+            false,
+            &mut warnings,
+        )
+        .unwrap();
+
+        assert_eq!(phases, vec!["copying".to_string(), "verifying".to_string()]);
+    }
+
+    #[test]
+    fn offload_files_does_not_emit_verifying_for_skipped_files() {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("clip.mxf"), b"abc123").unwrap();
+        std::fs::write(dst.path().join("clip.mxf"), b"already-there").unwrap();
+
+        let scan = scan_source(src.path(), &OffloadOptions::default(), &mut |_, _| {}).unwrap();
+        let destinations = vec![DestinationConfig {
+            path: dst.path().to_path_buf(),
+            label: Some("A".into()),
+        }];
+        let cancel = AtomicBool::new(false);
+        let mut warnings = Vec::new();
+        let mut phases = Vec::new();
+
+        offload_files(
+            src.path(),
+            &scan,
+            &destinations,
+            true,
+            &cancel,
+            &mut |p| phases.push(p.phase),
+            false,
+            true,
+            &mut warnings,
+        )
+        .unwrap();
+
+        assert_eq!(phases, vec!["copying".to_string()]);
     }
 }
