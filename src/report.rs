@@ -108,11 +108,11 @@ pub fn report_csv(report: &OffloadReport) -> String {
         };
         let error = dest.final_error.as_deref().unwrap_or("");
         out.push_str(&format!(
-            "\"{}\",\"{}\",\"{}\",{},{},{},{},{},\"{}\"\n",
+            "{},{},{},{},{},{},{},{},{}\n",
             csv_field(dest.config.label.as_deref().unwrap_or("")),
             csv_field(&dest.config.path.display().to_string()),
-            verification_mode,
-            status,
+            csv_field(verification_mode),
+            csv_field(status),
             dest.files_copied,
             dest.files_verified,
             dest.files_skipped,
@@ -467,11 +467,15 @@ mod tests {
         report.destination_results[0].config.label = Some("Backup \"A\"".into());
         report.destination_results[0].config.path = PathBuf::from("/Volumes/BACKUP, 01");
         report.destination_results[0].final_error = Some("bad \"checksum\"".into());
+        report.verification_performed = false;
 
         let csv = report_csv(&report);
 
+        assert!(!csv.contains("\"\"\""));
         assert!(csv.contains("\"Backup \"\"A\"\"\""));
         assert!(csv.contains("\"/Volumes/BACKUP, 01\""));
+        assert!(csv.contains("\"Copy-only (Unverified)\""));
+        assert!(csv.contains("\"COPIED (UNVERIFIED)\""));
         assert!(csv.contains("\"bad \"\"checksum\"\"\""));
     }
 
