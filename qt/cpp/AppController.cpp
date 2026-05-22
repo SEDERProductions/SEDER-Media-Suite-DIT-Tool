@@ -331,22 +331,57 @@ void AppController::startOffload()
             }
         }
         if (report.allPass) {
-            const QString mode = report.verificationPerformed
-                ? QStringLiteral("and verified")
-                : QStringLiteral("(copy-only, unverified)");
             setStatusText(QStringLiteral("Offload complete."));
-            appendLog(QStringLiteral("Offload complete %1.").arg(mode));
-            for (int i = 0; i < m_destinationModel->count(); ++i) {
-                auto *item = m_destinationModel->items().at(i);
-                const QString destLabel = item->label().isEmpty()
-                    ? QStringLiteral("Destination %1").arg(i + 1)
-                    : item->label();
-                appendLog(QStringLiteral("✓ All %1 files transferred to %2 %3")
-                    .arg(report.totalFiles).arg(destLabel, mode));
-            }
+            const QString overall = report.verificationPerformed
+                ? QStringLiteral("Offload complete and verified.")
+                : QStringLiteral("Offload complete (copy-only, unverified).");
+            appendLog(overall);
         } else {
             setStatusText(QStringLiteral("Offload completed with errors."));
             appendLog(QStringLiteral("Offload completed with errors."), LogSeverity::Error);
+        }
+        for (int i = 0; i < m_destinationModel->count() && i < report.destinationCounts.size(); ++i) {
+            auto *item = m_destinationModel->items().at(i);
+            const QString destLabel = item->label().isEmpty()
+                ? QStringLiteral("Destination %1").arg(i + 1)
+                : item->label();
+            const DestinationFinalCounts &c = report.destinationCounts.at(i);
+            const quint64 processed = c.filesCopied + c.filesSkipped;
+            QString line;
+            LogSeverity severity = LogSeverity::Info;
+            const bool destFailed = c.filesFailed > 0 || c.state == 5 || c.state == 6;
+            if (destFailed) {
+                line = QStringLiteral("✕ %1: %2 failed, %3 copied, %4 skipped of %5")
+                    .arg(destLabel)
+                    .arg(c.filesFailed)
+                    .arg(c.filesCopied)
+                    .arg(c.filesSkipped)
+                    .arg(report.totalFiles);
+                severity = LogSeverity::Error;
+            } else if (c.filesCopied == 0 && c.filesSkipped == report.totalFiles && report.totalFiles > 0) {
+                line = QStringLiteral("~ %1: all %2 files already present (skipped, no verify)")
+                    .arg(destLabel)
+                    .arg(c.filesSkipped);
+            } else if (c.filesSkipped > 0) {
+                const QString mode = report.verificationPerformed
+                    ? QStringLiteral("verified")
+                    : QStringLiteral("copied");
+                line = QStringLiteral("✓ %1: %2 %3, %4 skipped (%5 of %6 processed)")
+                    .arg(destLabel)
+                    .arg(c.filesCopied)
+                    .arg(mode)
+                    .arg(c.filesSkipped)
+                    .arg(processed)
+                    .arg(report.totalFiles);
+            } else {
+                const QString mode = report.verificationPerformed
+                    ? QStringLiteral("transferred and verified")
+                    : QStringLiteral("transferred (copy-only, unverified)");
+                line = QStringLiteral("✓ All %1 files %2 to %3")
+                    .arg(c.filesCopied)
+                    .arg(mode, destLabel);
+            }
+            appendLog(line, severity);
         }
         m_totalFiles = report.totalFiles;
         m_totalSize = report.totalSize;

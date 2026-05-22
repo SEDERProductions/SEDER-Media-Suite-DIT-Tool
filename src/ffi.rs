@@ -475,6 +475,32 @@ pub unsafe extern "C" fn seder_report_dest_state(
     files_failed_out: *mut u64,
     bytes_copied_out: *mut u64,
 ) -> u8 {
+    unsafe {
+        seder_report_dest_counts(
+            handle,
+            dest_index,
+            state_out,
+            files_copied_out,
+            files_verified_out,
+            files_failed_out,
+            std::ptr::null_mut(),
+            bytes_copied_out,
+        )
+    }
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn seder_report_dest_counts(
+    handle: *mut OffloadReportHandle,
+    dest_index: usize,
+    state_out: *mut u32,
+    files_copied_out: *mut u64,
+    files_verified_out: *mut u64,
+    files_failed_out: *mut u64,
+    files_skipped_out: *mut u64,
+    bytes_copied_out: *mut u64,
+) -> u8 {
     if handle.is_null() {
         return 0;
     }
@@ -495,6 +521,9 @@ pub unsafe extern "C" fn seder_report_dest_state(
         }
         if !files_failed_out.is_null() {
             *files_failed_out = dest.files_failed;
+        }
+        if !files_skipped_out.is_null() {
+            *files_skipped_out = dest.files_skipped;
         }
         if !bytes_copied_out.is_null() {
             *bytes_copied_out = dest.bytes_copied;

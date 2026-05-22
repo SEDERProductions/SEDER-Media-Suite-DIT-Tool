@@ -299,3 +299,77 @@ fn verify_failure_detected() {
     .unwrap();
     assert_eq!(results2[0].files_verified, 1);
 }
+
+#[cfg(unix)]
+#[test]
+fn partial_failure_isolated_to_failing_destination() {
+    // Regression: when one destination cannot accept a nested file,
+    // healthy destinations must still reach Complete with all their files
+    // copied + verified — not get poisoned by the failing destination's error.
+    use std::os::unix::fs::PermissionsExt;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("source");
+    std::fs::create_dir_all(src.join("sub/take2")).unwrap();
+    std::fs::write(src.join("top.bin"), b"top-level file").unwrap();
+    std::fs::write(src.join("sub/clip.bin"), b"first nested").unwrap();
+    std::fs::write(src.join("sub/take2/deep.bin"), b"deep nested file").unwrap();
+
+    let ok_a = tmp.path().join("dest_ok_a");
+    let ok_b = tmp.path().join("dest_ok_b");
+    let broken = tmp.path().join("dest_broken");
+    std::fs::create_dir_all(&ok_a).unwrap();
+    std::fs::create_dir_all(&ok_b).unwrap();
+    std::fs::create_dir_all(&broken).unwrap();
+    // Make `broken` read-only so create_dir_all for any nested subdir fails.
+    // Running tests as root would bypass this, so guard with a self-check.
+    std::fs::set_permissions(&broken, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if std::fs::create_dir(broken.join("probe")).is_ok() {
+        // Permissions don't apply (probably running as root) — skip the test.
+        return;
+    }
+
+    let scan = scan_source(&src, &make_options(), &mut |_, _| {}).unwrap();
+    let dests = make_dest_configs(&[ok_a.clone(), ok_b.clone(), broken.clone()], "Dest");
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut warnings = Vec::new();
+
+    let results = offload_files(
+        &src,
+        &scan,
+        &dests,
+        true,
+        &cancel,
+        &mut |_| {},
+        false,
+        false,
+        &mut warnings,
+    )
+    .unwrap();
+
+    // Restore permissions before any assertions can panic and leak state.
+    std::fs::set_permissions(&broken, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].state, DestinationState::Complete);
+    assert_eq!(results[0].files_verified, 3);
+    assert_eq!(results[0].files_failed, 0);
+    assert_eq!(results[1].state, DestinationState::Complete);
+    assert_eq!(results[1].files_verified, 3);
+    assert_eq!(results[1].files_failed, 0);
+    assert_eq!(results[2].state, DestinationState::Failed);
+    assert!(results[2].files_failed > 0);
+
+    // Warnings should reference user-facing 1-indexed destination labels.
+    let combined = warnings.join("\n");
+    assert!(
+        combined.contains("Destination 3"),
+        "expected warnings to reference 1-indexed 'Destination 3', got: {}",
+        combined
+    );
+    assert!(
+        !combined.contains("Destination 0"),
+        "warnings should never use 0-indexed labels, got: {}",
+        combined
+    );
+}
