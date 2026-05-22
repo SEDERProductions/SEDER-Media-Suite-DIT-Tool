@@ -1,3 +1,4 @@
+use crate::offload::media::FormatBreakdown;
 use crate::offload::{DestinationState, OffloadReport};
 
 pub fn report_txt(report: &OffloadReport) -> String {
@@ -20,9 +21,36 @@ pub fn report_txt(report: &OffloadReport) -> String {
     ));
     out.push_str(&format!("Files:     {}\n", report.source_scan.total_files));
     out.push_str(&format!(
-        "Size:      {}\n\n",
+        "Size:      {}\n",
         format_bytes(report.source_scan.total_size)
     ));
+
+    let breakdown = FormatBreakdown::from_files(
+        report
+            .source_scan
+            .files
+            .iter()
+            .map(|f| (f.relative_path.clone(), f.size)),
+    );
+    if !breakdown.is_empty() {
+        out.push_str("\nFormat breakdown:\n");
+        for (kind, count, bytes) in &breakdown.entries {
+            out.push_str(&format!(
+                "  {:<10} {:>6} file(s)   {}\n",
+                kind.as_str(),
+                count,
+                format_bytes(*bytes)
+            ));
+        }
+    }
+
+    if !report.source_scan.ignored_paths.is_empty() {
+        out.push_str(&format!(
+            "\nIgnored:   {} file(s) skipped by ignore rules\n",
+            report.source_scan.ignored_paths.len()
+        ));
+    }
+    out.push('\n');
 
     for (idx, dest) in report.destination_results.iter().enumerate() {
         out.push_str(&format!(
@@ -102,6 +130,43 @@ pub fn report_mhl(report: &OffloadReport, destination_index: usize) -> Result<St
     let mut out = String::new();
     out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     out.push_str("<hashlist version=\"2.0\" xmlns=\"urn:ASC:MHL:v2.0\">\n");
+    out.push_str("  <creatorinfo>\n");
+    out.push_str("    <tool>\n");
+    out.push_str("      <name>SEDER DIT Tool</name>\n");
+    out.push_str(&format!(
+        "      <version>{}</version>\n",
+        env!("CARGO_PKG_VERSION")
+    ));
+    out.push_str("    </tool>\n");
+    out.push_str(&format!(
+        "    <creationdate>{}</creationdate>\n",
+        xml_escape(&report.timestamp)
+    ));
+    if !report.metadata.project_name.is_empty() {
+        out.push_str(&format!(
+            "    <project>{}</project>\n",
+            xml_escape(&report.metadata.project_name)
+        ));
+    }
+    if !report.metadata.shoot_date.is_empty() {
+        out.push_str(&format!(
+            "    <shootdate>{}</shootdate>\n",
+            xml_escape(&report.metadata.shoot_date)
+        ));
+    }
+    if !report.metadata.card_name.is_empty() {
+        out.push_str(&format!(
+            "    <cardname>{}</cardname>\n",
+            xml_escape(&report.metadata.card_name)
+        ));
+    }
+    if !report.metadata.camera_id.is_empty() {
+        out.push_str(&format!(
+            "    <camera>{}</camera>\n",
+            xml_escape(&report.metadata.camera_id)
+        ));
+    }
+    out.push_str("  </creatorinfo>\n");
     out.push_str("  <generator>\n");
     out.push_str("    <name>SEDER DIT Tool</name>\n");
     out.push_str(&format!(
@@ -114,23 +179,171 @@ pub fn report_mhl(report: &OffloadReport, destination_index: usize) -> Result<St
 
     if report.destination_results.len() > destination_index {
         for file in &report.source_scan.files {
+            let method = file.algorithm.mhl_element_name();
             out.push_str("  <hash>\n");
             out.push_str(&format!(
                 "    <file>{}</file>\n",
                 xml_escape(&file.relative_path)
             ));
             out.push_str(&format!("    <size>{}</size>\n", file.size));
-            out.push_str("    <hashmethod>blake3</hashmethod>\n");
+            out.push_str(&format!("    <hashmethod>{}</hashmethod>\n", method));
             out.push_str(&format!(
                 "    <hashvalue>{}</hashvalue>\n",
-                file.source_blake3
+                file.source_hash
             ));
             out.push_str("  </hash>\n");
         }
     }
 
+    if !report.source_scan.ignored_paths.is_empty() {
+        out.push_str("  <ignored>\n");
+        for path in &report.source_scan.ignored_paths {
+            out.push_str(&format!("    <path>{}</path>\n", xml_escape(path)));
+        }
+        out.push_str("  </ignored>\n");
+    }
+
     out.push_str("</hashlist>\n");
     Ok(out)
+}
+
+/// Emit an Avid Log Exchange (.ale) sidecar listing each clip. Columns
+/// follow the minimal Avid convention: Name, Tape, Start, FPS, Duration.
+/// Tape is derived from the project's card name when available, falling
+/// back to the file's stem. Frame rate and duration use the metadata
+/// populated by ffprobe; rows without metadata still appear with
+/// blanks so the offload can be imported as a manifest.
+pub fn report_ale(report: &OffloadReport) -> String {
+    let mut out = String::new();
+    out.push_str("Heading\n");
+    out.push_str("FIELD_DELIM\tTABS\n");
+    out.push_str("VIDEO_FORMAT\t1080\n");
+    out.push_str("AUDIO_FORMAT\t48khz\n");
+    out.push_str(&format!(
+        "FPS\t{}\n",
+        report
+            .source_scan
+            .files
+            .iter()
+            .find_map(|f| f.metadata.as_ref().map(|m| m.fps_display()))
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "24".into())
+    ));
+    out.push('\n');
+
+    out.push_str("Column\n");
+    out.push_str("Name\tTape\tStart\tFPS\tDuration\n\n");
+
+    out.push_str("Data\n");
+    let tape = if !report.metadata.card_name.is_empty() {
+        report.metadata.card_name.clone()
+    } else {
+        String::new()
+    };
+    for f in &report.source_scan.files {
+        let name = std::path::Path::new(&f.relative_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&f.relative_path)
+            .to_string();
+        let start = f
+            .metadata
+            .as_ref()
+            .and_then(|m| m.timecode.clone())
+            .unwrap_or_default();
+        let fps = f
+            .metadata
+            .as_ref()
+            .map(|m| m.fps_display())
+            .unwrap_or_default();
+        let duration = f
+            .metadata
+            .as_ref()
+            .map(|m| seconds_to_timecode(m.duration_seconds, m.fps_num, m.fps_den))
+            .unwrap_or_default();
+        let row_tape = if tape.is_empty() {
+            name.clone()
+        } else {
+            tape.clone()
+        };
+        out.push_str(&format!(
+            "{}\t{}\t{}\t{}\t{}\n",
+            ale_field(&name),
+            ale_field(&row_tape),
+            ale_field(&start),
+            ale_field(&fps),
+            ale_field(&duration),
+        ));
+    }
+    out
+}
+
+fn ale_field(s: &str) -> String {
+    // Avid ALE uses tabs as delimiters; sanitize any embedded tab/CR/LF
+    // by replacing with single spaces so the table layout stays intact.
+    s.chars()
+        .map(|c| {
+            if c == '\t' || c == '\n' || c == '\r' {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+fn seconds_to_timecode(seconds: f64, fps_num: u32, fps_den: u32) -> String {
+    if seconds <= 0.0 || fps_num == 0 || fps_den == 0 {
+        return String::new();
+    }
+    let fps = fps_num as f64 / fps_den as f64;
+    let total_frames = (seconds * fps).round() as u64;
+    let frames_per_second = fps.round() as u64;
+    if frames_per_second == 0 {
+        return String::new();
+    }
+    let frames = total_frames % frames_per_second;
+    let total_seconds = total_frames / frames_per_second;
+    let s = total_seconds % 60;
+    let m = (total_seconds / 60) % 60;
+    let h = total_seconds / 3600;
+    format!("{:02}:{:02}:{:02}:{:02}", h, m, s, frames)
+}
+
+/// Emit a JSON sidecar describing each scanned file plus its ffprobe
+/// metadata when present. Returns Err on serialization failure (rare).
+pub fn report_metadata_json(report: &OffloadReport) -> Result<String, String> {
+    let entries: Vec<serde_json::Value> = report
+        .source_scan
+        .files
+        .iter()
+        .map(|f| {
+            let media_kind = crate::offload::media::classify(&f.relative_path);
+            serde_json::json!({
+                "path": f.relative_path,
+                "size": f.size,
+                "hash_algorithm": f.algorithm.as_str(),
+                "hash": f.source_hash,
+                "media_kind": media_kind.as_str(),
+                "metadata": f.metadata,
+            })
+        })
+        .collect();
+    let doc = serde_json::json!({
+        "generator": {
+            "name": "SEDER DIT Tool",
+            "version": env!("CARGO_PKG_VERSION"),
+        },
+        "timestamp": report.timestamp,
+        "source": report.source_path,
+        "project": report.metadata.project_name,
+        "shoot_date": report.metadata.shoot_date,
+        "card": report.metadata.card_name,
+        "camera": report.metadata.camera_id,
+        "files": entries,
+        "ignored_paths": report.source_scan.ignored_paths,
+    });
+    serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())
 }
 
 fn csv_field(value: &str) -> String {
@@ -180,16 +393,21 @@ mod tests {
                     FileEntry {
                         relative_path: "clip001.mxf".into(),
                         size: 1024 * 1024,
-                        source_blake3: "abc123hash".into(),
+                        source_hash: "abc123hash".into(),
+                        algorithm: ChecksumAlgo::Blake3,
+                        metadata: None,
                     },
                     FileEntry {
                         relative_path: "clip002.mxf".into(),
                         size: 2048 * 1024,
-                        source_blake3: "def456hash".into(),
+                        source_hash: "def456hash".into(),
+                        algorithm: ChecksumAlgo::Blake3,
+                        metadata: None,
                     },
                 ],
                 total_size: 3 * 1024 * 1024,
                 total_files: 2,
+                ignored_paths: vec![],
             },
             destination_results: vec![DestinationResult {
                 config: DestinationConfig {
@@ -263,6 +481,74 @@ mod tests {
         let mhl = report_mhl(&report, 0).expect("mhl should be generated");
         assert!(mhl.contains("abc123hash"));
         assert!(mhl.contains("urn:ASC:MHL:v2.0"));
+        assert!(mhl.contains("<hashmethod>blake3</hashmethod>"));
+    }
+
+    #[test]
+    fn report_mhl_emits_creatorinfo_with_project_metadata() {
+        let report = make_test_report();
+        let mhl = report_mhl(&report, 0).expect("mhl should be generated");
+        assert!(mhl.contains("<creatorinfo>"));
+        assert!(mhl.contains("<name>SEDER DIT Tool</name>"));
+        assert!(mhl.contains("<project>Test Project</project>"));
+        assert!(mhl.contains("<shootdate>2026-05-04</shootdate>"));
+        assert!(mhl.contains("<cardname>A001</cardname>"));
+        assert!(mhl.contains("<camera>CAM-001</camera>"));
+    }
+
+    #[test]
+    fn report_mhl_emits_ignored_block_when_files_were_skipped() {
+        let mut report = make_test_report();
+        report.source_scan.ignored_paths = vec![
+            ".DS_Store".into(),
+            "Thumbs.db".into(),
+            "sub/<weird>.txt".into(),
+        ];
+        let mhl = report_mhl(&report, 0).expect("mhl should be generated");
+        assert!(mhl.contains("<ignored>"));
+        assert!(mhl.contains("<path>.DS_Store</path>"));
+        assert!(mhl.contains("<path>Thumbs.db</path>"));
+        // XML escape on the weird path
+        assert!(mhl.contains("&lt;weird&gt;"));
+    }
+
+    #[test]
+    fn report_mhl_omits_ignored_block_when_nothing_skipped() {
+        let report = make_test_report();
+        let mhl = report_mhl(&report, 0).expect("mhl should be generated");
+        assert!(!mhl.contains("<ignored>"));
+    }
+
+    #[test]
+    fn report_txt_shows_format_breakdown() {
+        let report = make_test_report();
+        let txt = report_txt(&report);
+        assert!(txt.contains("Format breakdown:"));
+        assert!(txt.contains("MXF"));
+    }
+
+    #[test]
+    fn report_txt_shows_ignored_count() {
+        let mut report = make_test_report();
+        report.source_scan.ignored_paths = vec![".DS_Store".into(), "Thumbs.db".into()];
+        let txt = report_txt(&report);
+        assert!(txt.contains("Ignored:"));
+        assert!(txt.contains("2 file"));
+    }
+
+    #[test]
+    fn report_mhl_uses_per_file_algorithm() {
+        let mut report = make_test_report();
+        report.source_scan.files[0].algorithm = ChecksumAlgo::Md5;
+        report.source_scan.files[0].source_hash = "900150983cd24fb0d6963f7d28e17f72".into();
+        report.source_scan.files[1].algorithm = ChecksumAlgo::Xxh3_64;
+        report.source_scan.files[1].source_hash = "abcdefabcdef0123".into();
+
+        let mhl = report_mhl(&report, 0).expect("mhl should be generated");
+        assert!(mhl.contains("<hashmethod>md5</hashmethod>"));
+        assert!(mhl.contains("<hashmethod>xxh3</hashmethod>"));
+        assert!(mhl.contains("900150983cd24fb0d6963f7d28e17f72"));
+        assert!(mhl.contains("abcdefabcdef0123"));
     }
 
     #[test]
@@ -277,5 +563,89 @@ mod tests {
         assert_eq!(xml_escape("<tag>"), "&lt;tag&gt;");
         assert_eq!(xml_escape("a & b"), "a &amp; b");
         assert_eq!(xml_escape("\"quoted\""), "&quot;quoted&quot;");
+    }
+
+    #[test]
+    fn metadata_json_includes_files_and_ignored_paths() {
+        let mut report = make_test_report();
+        report.source_scan.ignored_paths = vec![".DS_Store".into()];
+        let json = report_metadata_json(&report).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["project"], "Test Project");
+        assert_eq!(v["files"][0]["path"], "clip001.mxf");
+        assert_eq!(v["files"][0]["hash_algorithm"], "BLAKE3");
+        assert_eq!(v["files"][0]["media_kind"], "MXF");
+        assert!(v["files"][0]["metadata"].is_null());
+        assert_eq!(v["ignored_paths"][0], ".DS_Store");
+    }
+
+    #[test]
+    fn ale_export_has_required_sections() {
+        let report = make_test_report();
+        let ale = report_ale(&report);
+        assert!(ale.starts_with("Heading\n"));
+        assert!(ale.contains("FIELD_DELIM\tTABS"));
+        assert!(ale.contains("\nColumn\n"));
+        assert!(ale.contains("Name\tTape\tStart\tFPS\tDuration"));
+        assert!(ale.contains("\nData\n"));
+        // Names come from file stems
+        assert!(ale.contains("clip001"));
+        assert!(ale.contains("clip002"));
+        // Tape from project card_name
+        assert!(ale.contains("A001"));
+    }
+
+    #[test]
+    fn ale_uses_metadata_fps_and_duration_when_present() {
+        use crate::offload::ClipMetadata;
+        let mut report = make_test_report();
+        report.source_scan.files[0].metadata = Some(ClipMetadata {
+            video_codec: "prores".into(),
+            width: 1920,
+            height: 1080,
+            fps_num: 24000,
+            fps_den: 1001,
+            duration_seconds: 4.0,
+            audio_codec: String::new(),
+            audio_channels: 0,
+            audio_sample_rate: 0,
+            timecode: Some("01:00:00:00".into()),
+            color_space: String::new(),
+        });
+        let ale = report_ale(&report);
+        assert!(ale.contains("23.976"));
+        assert!(ale.contains("01:00:00:00"));
+    }
+
+    #[test]
+    fn seconds_to_timecode_basic() {
+        assert_eq!(super::seconds_to_timecode(0.0, 24, 1), "");
+        assert_eq!(super::seconds_to_timecode(10.0, 24, 1), "00:00:10:00");
+        assert_eq!(super::seconds_to_timecode(3661.0, 24, 1), "01:01:01:00");
+        assert_eq!(super::seconds_to_timecode(1.0, 0, 1), "");
+    }
+
+    #[test]
+    fn metadata_json_serializes_clip_metadata_when_present() {
+        use crate::offload::ClipMetadata;
+        let mut report = make_test_report();
+        report.source_scan.files[0].metadata = Some(ClipMetadata {
+            video_codec: "prores".into(),
+            width: 1920,
+            height: 1080,
+            fps_num: 24000,
+            fps_den: 1001,
+            duration_seconds: 10.5,
+            audio_codec: "pcm_s16le".into(),
+            audio_channels: 2,
+            audio_sample_rate: 48000,
+            timecode: Some("01:00:00:00".into()),
+            color_space: "bt709".into(),
+        });
+        let json = report_metadata_json(&report).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["files"][0]["metadata"]["video_codec"], "prores");
+        assert_eq!(v["files"][0]["metadata"]["width"], 1920);
+        assert_eq!(v["files"][0]["metadata"]["timecode"], "01:00:00:00");
     }
 }

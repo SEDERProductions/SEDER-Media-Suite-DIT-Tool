@@ -30,9 +30,14 @@ set(RUST_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/lib.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/ffi.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/mod.rs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/checkpoint.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/engine.rs"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/progress.rs"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/verify.rs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/ffprobe.rs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/hash.rs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/media.rs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/proxy.rs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/template.rs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/thumbnail.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/volume.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/report.rs"
 )
@@ -136,6 +141,8 @@ qt_add_executable(seder-media-suite-dit-qt
     cpp/DestinationListModel.h
     cpp/DitOffloadWorker.cpp
     cpp/DitOffloadWorker.h
+    cpp/SettingsStore.cpp
+    cpp/SettingsStore.h
     cpp/ThemeController.cpp
     cpp/ThemeController.h
     cpp/main.cpp
@@ -156,9 +163,14 @@ qt_add_qml_module(seder-media-suite-dit-qt
         qml/StyledCheckBox.qml
         qml/StyledProgressBar.qml
         qml/PathPicker.qml
+        qml/AboutDialog.qml
+        qml/PreferencesDialog.qml
 )
 
 target_include_directories(seder-media-suite-dit-qt PRIVATE cpp)
+target_compile_definitions(seder-media-suite-dit-qt PRIVATE
+    SEDER_DIT_VERSION="${CARGO_VERSION}"
+)
 target_link_libraries(seder-media-suite-dit-qt
     PRIVATE
         Qt6::Core

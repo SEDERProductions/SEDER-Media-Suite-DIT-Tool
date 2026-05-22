@@ -1,13 +1,51 @@
+use crate::offload::ffprobe;
+use crate::offload::hash::ChecksumAlgo;
+use crate::offload::media::{classify, MediaKind};
 use crate::offload::*;
 use crossbeam_channel::{bounded, Sender};
 use globset::{Glob, GlobSetBuilder};
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 const CHUNK_SIZE: usize = 1024 * 1024; // 1 MiB
 const CHANNEL_BOUND: usize = 16;
+
+const IO_RETRY_ATTEMPTS: u32 = 3;
+const IO_RETRY_BASE_DELAY: Duration = Duration::from_millis(50);
+
+fn is_transient_io_error(kind: io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        io::ErrorKind::Interrupted
+            | io::ErrorKind::WouldBlock
+            | io::ErrorKind::TimedOut
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::BrokenPipe
+    )
+}
+
+fn retry_io<T, F>(mut op: F) -> io::Result<T>
+where
+    F: FnMut() -> io::Result<T>,
+{
+    let mut attempt: u32 = 0;
+    loop {
+        match op() {
+            Ok(value) => return Ok(value),
+            Err(err) => {
+                if attempt + 1 >= IO_RETRY_ATTEMPTS || !is_transient_io_error(err.kind()) {
+                    return Err(err);
+                }
+                std::thread::sleep(IO_RETRY_BASE_DELAY * (1u32 << attempt));
+                attempt += 1;
+            }
+        }
+    }
+}
 
 #[derive(Clone)]
 enum ChunkMessage {
@@ -43,9 +81,18 @@ pub fn scan_source(
         });
 
     let mut files = Vec::new();
+    let mut ignored_paths: Vec<String> = Vec::new();
     let mut total_size = 0u64;
     let mut total_files = 0u64;
     let mut buf = vec![0u8; CHUNK_SIZE];
+
+    // Discover ffprobe once per scan; if not available, treat
+    // extract_metadata as a no-op for this run.
+    let ffprobe_path = if options.extract_metadata {
+        ffprobe::discover()
+    } else {
+        None
+    };
 
     let ignore_glob = if !options.ignore_patterns.is_empty() {
         let mut builder = GlobSetBuilder::new();
@@ -73,6 +120,7 @@ pub fn scan_source(
         let rel_str = relative.to_string_lossy().replace('\\', "/");
 
         if options.ignore_hidden_system && is_hidden_or_system(path) {
+            ignored_paths.push(rel_str);
             continue;
         }
         if let Some(ref gs) = ignore_glob {
@@ -81,6 +129,7 @@ pub fn scan_source(
                 .and_then(|n| n.to_str())
                 .unwrap_or(&rel_str);
             if gs.is_match(rel_str.as_str()) || gs.is_match(basename) {
+                ignored_paths.push(rel_str);
                 continue;
             }
         }
@@ -89,9 +138,8 @@ pub fn scan_source(
         total_size += size;
         total_files += 1;
 
-        // Compute blake3 hash
         let mut file = File::open(path)?;
-        let mut hasher = blake3::Hasher::new();
+        let mut hasher = options.algorithm.new_hasher();
         loop {
             let n = file.read(&mut buf)?;
             if n == 0 {
@@ -99,12 +147,38 @@ pub fn scan_source(
             }
             hasher.update(&buf[..n]);
         }
-        let hash = hasher.finalize().to_hex().to_string();
+        let hash = hasher.finalize_hex();
+
+        // Best-effort metadata probe for recognised media kinds.
+        let metadata = if let Some(ref ffprobe_bin) = ffprobe_path {
+            let kind = classify(&rel_str);
+            if matches!(
+                kind,
+                MediaKind::R3d
+                    | MediaKind::Arri
+                    | MediaKind::Braw
+                    | MediaKind::CanonRaw
+                    | MediaKind::CinemaDng
+                    | MediaKind::Mxf
+                    | MediaKind::Mov
+                    | MediaKind::Mp4
+                    | MediaKind::MpegTs
+                    | MediaKind::Audio
+            ) {
+                ffprobe::probe(path, ffprobe_bin).ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         files.push(FileEntry {
             relative_path: rel_str,
             size,
-            source_blake3: hash,
+            source_hash: hash,
+            algorithm: options.algorithm,
+            metadata,
         });
 
         progress(total_files, total_size);
@@ -114,6 +188,7 @@ pub fn scan_source(
         files,
         total_size,
         total_files,
+        ignored_paths,
     })
 }
 
@@ -175,6 +250,7 @@ pub fn offload_files(
             cancel_flag,
             sync_writes,
             skip_existing,
+            file_entry.algorithm,
             &mut file_warnings,
         );
 
@@ -198,7 +274,8 @@ pub fn offload_files(
                                     destinations[idx].path.join(&file_entry.relative_path);
                                 match verify_file(
                                     &dest_path,
-                                    &file_entry.source_blake3,
+                                    &file_entry.source_hash,
+                                    file_entry.algorithm,
                                     &mut verify_buf,
                                 ) {
                                     Ok(()) => {
@@ -294,6 +371,7 @@ pub fn offload_files(
     Ok(results)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn copy_file_fanout(
     src_path: &Path,
     relative_path: &str,
@@ -301,6 +379,7 @@ fn copy_file_fanout(
     cancel_flag: &AtomicBool,
     sync_writes: bool,
     skip_existing: bool,
+    algorithm: ChecksumAlgo,
     warnings: &mut Vec<String>,
 ) -> anyhow::Result<Vec<FileCopyStatus>> {
     let dest_count = destinations.len();
@@ -361,23 +440,23 @@ fn copy_file_fanout(
         senders.push((idx, tx));
 
         let handle = std::thread::spawn(move || -> anyhow::Result<String> {
-            let mut file = File::create(&dest_path)
+            let mut file = retry_io(|| File::create(&dest_path))
                 .map_err(|e| anyhow::anyhow!("Create {}: {}", dest_path.display(), e))?;
-            let mut hasher = blake3::Hasher::new();
+            let mut hasher = algorithm.new_hasher();
 
             for msg in rx {
                 match msg {
                     ChunkMessage::Data(bytes) => {
-                        file.write_all(&bytes)?;
+                        retry_io(|| file.write_all(&bytes))?;
                         hasher.update(&bytes);
                     }
                     ChunkMessage::End => break,
                 }
             }
             if sync_writes {
-                file.sync_data()?;
+                retry_io(|| file.sync_data())?;
             }
-            Ok(hasher.finalize().to_hex().to_string())
+            Ok(hasher.finalize_hex())
         });
         handles.push((idx, handle));
     }
@@ -387,7 +466,7 @@ fn copy_file_fanout(
         return Ok(result);
     }
 
-    let mut src_file = File::open(src_path)
+    let mut src_file = retry_io(|| File::open(src_path))
         .map_err(|e| anyhow::anyhow!("Open source {}: {}", src_path.display(), e))?;
 
     let mut buf = vec![0u8; CHUNK_SIZE];
@@ -399,7 +478,7 @@ fn copy_file_fanout(
             return Err(anyhow::anyhow!("Cancelled by user"));
         }
 
-        let n = match src_file.read(&mut buf) {
+        let n = match retry_io(|| src_file.read(&mut buf)) {
             Ok(0) => break,
             Ok(n) => n,
             Err(e) => {
@@ -460,23 +539,29 @@ fn copy_file_fanout(
     Ok(result)
 }
 
-fn verify_file(dest_path: &Path, expected_blake3: &str, buf: &mut [u8]) -> anyhow::Result<()> {
-    let mut file = File::open(dest_path)?;
-    let mut hasher = blake3::Hasher::new();
+fn verify_file(
+    dest_path: &Path,
+    expected_hash: &str,
+    algorithm: ChecksumAlgo,
+    buf: &mut [u8],
+) -> anyhow::Result<()> {
+    let mut file = retry_io(|| File::open(dest_path))?;
+    let mut hasher = algorithm.new_hasher();
 
     loop {
-        let n = file.read(buf)?;
+        let n = retry_io(|| file.read(buf))?;
         if n == 0 {
             break;
         }
         hasher.update(&buf[..n]);
     }
 
-    let actual = hasher.finalize().to_hex().to_string();
-    if actual != expected_blake3 {
+    let actual = hasher.finalize_hex();
+    if actual != expected_hash {
         anyhow::bail!(
-            "Hash mismatch\n  expected: {}\n  actual:   {}",
-            expected_blake3,
+            "{} mismatch\n  expected: {}\n  actual:   {}",
+            algorithm.as_str(),
+            expected_hash,
             actual
         );
     }
@@ -568,7 +653,7 @@ mod tests {
 
         let hash = blake3::hash(data).to_hex().to_string();
         let mut buf = vec![0u8; CHUNK_SIZE];
-        assert!(verify_file(&path, &hash, &mut buf).is_ok());
+        assert!(verify_file(&path, &hash, ChecksumAlgo::Blake3, &mut buf).is_ok());
     }
 
     #[test]
@@ -579,6 +664,82 @@ mod tests {
 
         let wrong_hash = blake3::hash(b"different data").to_hex().to_string();
         let mut buf = vec![0u8; CHUNK_SIZE];
-        assert!(verify_file(&path, &wrong_hash, &mut buf).is_err());
+        assert!(verify_file(&path, &wrong_hash, ChecksumAlgo::Blake3, &mut buf).is_err());
+    }
+
+    #[test]
+    fn verify_file_works_with_md5() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.bin");
+        let data = b"abc";
+        std::fs::write(&path, data).unwrap();
+
+        let mut buf = vec![0u8; CHUNK_SIZE];
+        let md5_abc = "900150983cd24fb0d6963f7d28e17f72";
+        assert!(verify_file(&path, md5_abc, ChecksumAlgo::Md5, &mut buf).is_ok());
+        assert!(verify_file(&path, "deadbeef", ChecksumAlgo::Md5, &mut buf).is_err());
+    }
+
+    #[test]
+    fn retry_io_succeeds_after_transient_interrupted() {
+        use std::cell::Cell;
+        let attempts = Cell::new(0u32);
+        let result: io::Result<u32> = retry_io(|| {
+            let n = attempts.get();
+            attempts.set(n + 1);
+            if n < 2 {
+                Err(io::Error::new(io::ErrorKind::Interrupted, "try again"))
+            } else {
+                Ok(42)
+            }
+        });
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(attempts.get(), 3);
+    }
+
+    #[test]
+    fn retry_io_does_not_retry_non_transient() {
+        use std::cell::Cell;
+        let attempts = Cell::new(0u32);
+        let result: io::Result<()> = retry_io(|| {
+            attempts.set(attempts.get() + 1);
+            Err(io::Error::new(io::ErrorKind::PermissionDenied, "nope"))
+        });
+        assert!(result.is_err());
+        assert_eq!(attempts.get(), 1);
+    }
+
+    #[test]
+    fn retry_io_gives_up_after_max_attempts() {
+        use std::cell::Cell;
+        let attempts = Cell::new(0u32);
+        let result: io::Result<()> = retry_io(|| {
+            attempts.set(attempts.get() + 1);
+            Err(io::Error::new(io::ErrorKind::TimedOut, "still down"))
+        });
+        assert!(result.is_err());
+        assert_eq!(attempts.get(), IO_RETRY_ATTEMPTS);
+    }
+
+    #[test]
+    fn transient_kinds_are_marked_transient() {
+        for k in [
+            io::ErrorKind::Interrupted,
+            io::ErrorKind::WouldBlock,
+            io::ErrorKind::TimedOut,
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::ConnectionAborted,
+            io::ErrorKind::BrokenPipe,
+        ] {
+            assert!(is_transient_io_error(k), "{:?} should be transient", k);
+        }
+        for k in [
+            io::ErrorKind::NotFound,
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::AlreadyExists,
+            io::ErrorKind::InvalidInput,
+        ] {
+            assert!(!is_transient_io_error(k), "{:?} should not be transient", k);
+        }
     }
 }

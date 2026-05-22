@@ -37,6 +37,13 @@ pub struct SederOffloadRequest {
     pub skip_existing: u8,
     pub generate_report: u8,
     pub cancel_token: *mut u8,
+    /// NUL-terminated algorithm name: BLAKE3 / MD5 / SHA1 / XXH3-64 /
+    /// XXH3-128. NULL or an unrecognized value falls back to BLAKE3.
+    pub checksum_algorithm: *const c_char,
+    /// When non-zero, run ffprobe on each recognised media file and
+    /// attach the resulting clip metadata to the report. Silently a
+    /// no-op when ffprobe isn't available on the host.
+    pub extract_metadata: u8,
 }
 
 #[repr(C)]
@@ -102,6 +109,8 @@ pub struct OffloadReportHandle {
     pub txt_export: CString,
     pub csv_export: CString,
     pub mhl_export: CString,
+    pub metadata_json_export: CString,
+    pub ale_export: CString,
 }
 
 // ============================================================================
@@ -146,6 +155,13 @@ pub unsafe extern "C" fn seder_offload_start(
             .filter(|s| !s.is_empty())
             .collect();
 
+        let algorithm = if req.checksum_algorithm.is_null() {
+            ChecksumAlgo::default()
+        } else {
+            let name = unsafe { cstr_to_string(req.checksum_algorithm) };
+            ChecksumAlgo::parse(&name).unwrap_or_default()
+        };
+
         let options = OffloadOptions {
             ignore_hidden_system: req.ignore_hidden_system != 0,
             ignore_patterns,
@@ -153,6 +169,8 @@ pub unsafe extern "C" fn seder_offload_start(
             sync_writes: req.sync_writes != 0,
             skip_existing: req.skip_existing != 0,
             generate_report: req.generate_report != 0,
+            algorithm,
+            extract_metadata: req.extract_metadata != 0,
         };
 
         let offload_request = OffloadRequest {
@@ -358,12 +376,20 @@ pub unsafe extern "C" fn seder_offload_start(
         } else {
             String::new()
         };
+        let metadata_json = if offload_request.options.extract_metadata {
+            report::report_metadata_json(&report).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let ale = report::report_ale(&report);
 
         let handle = Box::new(OffloadReportHandle {
             report,
             txt_export: CString::new(txt).unwrap_or_default(),
             csv_export: CString::new(csv).unwrap_or_default(),
             mhl_export: CString::new(mhl).unwrap_or_default(),
+            metadata_json_export: CString::new(metadata_json).unwrap_or_default(),
+            ale_export: CString::new(ale).unwrap_or_default(),
         });
 
         Ok(Box::into_raw(handle))
@@ -547,6 +573,266 @@ pub unsafe extern "C" fn seder_report_verification_performed(
     }
 }
 
+/// Borrowed pointer to the metadata JSON sidecar. Lifetime is the
+/// handle's. Empty C string if extract_metadata was disabled or no
+/// metadata was extracted.
+#[no_mangle]
+pub unsafe extern "C" fn seder_report_export_metadata_json(
+    handle: *mut OffloadReportHandle,
+) -> *const c_char {
+    if handle.is_null() {
+        return std::ptr::null();
+    }
+    unsafe { (*handle).metadata_json_export.as_ptr() }
+}
+
+/// Borrowed pointer to the ALE (Avid Log Exchange) sidecar.
+#[no_mangle]
+pub unsafe extern "C" fn seder_report_export_ale(
+    handle: *mut OffloadReportHandle,
+) -> *const c_char {
+    if handle.is_null() {
+        return std::ptr::null();
+    }
+    unsafe { (*handle).ale_export.as_ptr() }
+}
+
+/// 1 if `path` resolves to an LTFS-mounted volume on the host, 0 otherwise.
+#[no_mangle]
+pub unsafe extern "C" fn seder_is_ltfs_volume(path: *const c_char) -> u8 {
+    if path.is_null() {
+        return 0;
+    }
+    let s = unsafe { cstr_to_string(path) };
+    if crate::offload::volume::is_ltfs_volume(std::path::Path::new(&s)) {
+        1
+    } else {
+        0
+    }
+}
+
+/// Compare two semver-ish version strings ("MAJOR.MINOR.PATCH",
+/// optionally with a leading "v"). Returns 1 if `latest` is strictly
+/// newer than `current`, 0 otherwise (including on parse failure).
+/// Used by the Qt side's opt-in update banner without pulling a Qt
+/// regex into the C++ surface for one comparison.
+#[no_mangle]
+pub unsafe extern "C" fn seder_version_is_newer(
+    current: *const c_char,
+    latest: *const c_char,
+) -> u8 {
+    if current.is_null() || latest.is_null() {
+        return 0;
+    }
+    let cur = unsafe { cstr_to_string(current) };
+    let lat = unsafe { cstr_to_string(latest) };
+    let parse = |s: &str| -> Option<(u32, u32, u32)> {
+        let trimmed = s.trim().trim_start_matches('v');
+        let mut parts = trimmed.split('.');
+        let a = parts.next()?.parse().ok()?;
+        let b = parts.next()?.parse().ok()?;
+        let c = parts.next().unwrap_or("0").parse().ok()?;
+        Some((a, b, c))
+    };
+    match (parse(&cur), parse(&lat)) {
+        (Some(c), Some(l)) if l > c => 1,
+        _ => 0,
+    }
+}
+
+/// Save a crash-recovery checkpoint as JSON under `state_dir`. The
+/// `checkpoint_json` argument is the full serialized payload; the FFI
+/// keeps the schema opaque so the Qt side can ship richer fields
+/// without a Rust round-trip. Returns 1 on success, 0 on failure.
+#[no_mangle]
+pub unsafe extern "C" fn seder_checkpoint_save(
+    state_dir: *const c_char,
+    checkpoint_json: *const c_char,
+) -> u8 {
+    let result = catch_unwind(|| {
+        if state_dir.is_null() || checkpoint_json.is_null() {
+            return 0u8;
+        }
+        let dir = unsafe { cstr_to_string(state_dir) };
+        let payload = unsafe { cstr_to_string(checkpoint_json) };
+        let cp: crate::offload::checkpoint::Checkpoint = match serde_json::from_str(&payload) {
+            Ok(c) => c,
+            Err(_) => return 0,
+        };
+        match crate::offload::checkpoint::save(std::path::Path::new(&dir), &cp) {
+            Ok(_) => 1,
+            Err(_) => 0,
+        }
+    });
+    result.unwrap_or(0)
+}
+
+/// Load the latest checkpoint as a JSON string. Returns NULL if none
+/// exists or the file can't be parsed. Caller frees with seder_string_free.
+#[no_mangle]
+pub unsafe extern "C" fn seder_checkpoint_load(state_dir: *const c_char) -> *mut c_char {
+    let result = catch_unwind(|| {
+        if state_dir.is_null() {
+            return std::ptr::null_mut::<c_char>();
+        }
+        let dir = unsafe { cstr_to_string(state_dir) };
+        let cp = crate::offload::checkpoint::load(std::path::Path::new(&dir));
+        let cp = match cp {
+            Some(c) => c,
+            None => return std::ptr::null_mut(),
+        };
+        match serde_json::to_string(&cp) {
+            Ok(s) => match CString::new(s) {
+                Ok(c) => c.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+/// Delete the checkpoint file (idempotent). Returns 1 on success.
+#[no_mangle]
+pub unsafe extern "C" fn seder_checkpoint_clear(state_dir: *const c_char) -> u8 {
+    if state_dir.is_null() {
+        return 0;
+    }
+    let dir = unsafe { cstr_to_string(state_dir) };
+    if crate::offload::checkpoint::clear(std::path::Path::new(&dir)).is_ok() {
+        1
+    } else {
+        0
+    }
+}
+
+/// Transcode `media` into `proxies_root` using a named preset
+/// (PRORES / H264 / DNXHR — case-insensitive). Returns the
+/// heap-allocated output path on success, NULL on failure. Caller
+/// frees with `seder_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn seder_generate_proxy(
+    media: *const c_char,
+    proxies_root: *const c_char,
+    preset_name: *const c_char,
+) -> *mut c_char {
+    let result = catch_unwind(|| {
+        if media.is_null() || proxies_root.is_null() || preset_name.is_null() {
+            return std::ptr::null_mut::<c_char>();
+        }
+        let media_s = unsafe { cstr_to_string(media) };
+        let root_s = unsafe { cstr_to_string(proxies_root) };
+        let preset_s = unsafe { cstr_to_string(preset_name) };
+        let preset = match crate::offload::proxy::ProxyPreset::parse(&preset_s) {
+            Some(p) => p,
+            None => return std::ptr::null_mut(),
+        };
+        match crate::offload::proxy::transcode(
+            std::path::Path::new(&media_s),
+            std::path::Path::new(&root_s),
+            preset,
+        ) {
+            Ok(p) => match CString::new(p.to_string_lossy().into_owned()) {
+                Ok(c) => c.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+/// 1 if ffprobe was discoverable at the moment of the call, 0 otherwise.
+/// Cheap to call repeatedly — this just walks PATH + fallback dirs.
+#[no_mangle]
+pub extern "C" fn seder_ffprobe_available() -> u8 {
+    if crate::offload::ffprobe::discover().is_some() {
+        1
+    } else {
+        0
+    }
+}
+
+/// 1 if ffmpeg was discoverable, 0 otherwise. Reserved for the upcoming
+/// proxy-generation phase; exposed now so the UI can show a unified
+/// "ffmpeg suite available" badge.
+#[no_mangle]
+pub extern "C" fn seder_ffmpeg_available() -> u8 {
+    if crate::offload::ffprobe::discover_ffmpeg().is_some() {
+        1
+    } else {
+        0
+    }
+}
+
+/// Extract a thumbnail JPEG for the given media file into the given
+/// cache directory. The cache key is the source `algorithm` and `hash`
+/// strings — passing the same pair returns the same cached file without
+/// re-invoking ffmpeg. Returns the heap-allocated absolute path on
+/// success, NULL on failure. Caller frees with `seder_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn seder_extract_thumbnail(
+    media: *const c_char,
+    cache_dir: *const c_char,
+    algorithm: *const c_char,
+    hash: *const c_char,
+) -> *mut c_char {
+    let result = catch_unwind(|| {
+        if media.is_null() || cache_dir.is_null() || algorithm.is_null() || hash.is_null() {
+            return std::ptr::null_mut::<c_char>();
+        }
+        let media_s = unsafe { cstr_to_string(media) };
+        let cache_s = unsafe { cstr_to_string(cache_dir) };
+        let algo_s = unsafe { cstr_to_string(algorithm) };
+        let hash_s = unsafe { cstr_to_string(hash) };
+
+        match crate::offload::thumbnail::extract(
+            std::path::Path::new(&media_s),
+            std::path::Path::new(&cache_s),
+            &algo_s,
+            &hash_s,
+        ) {
+            Ok(path) => match CString::new(path.to_string_lossy().into_owned()) {
+                Ok(c) => c.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+/// Expand a destination template (e.g. "{project}/{date}/{card}") given the
+/// project metadata. The returned C string is heap-allocated and must be
+/// freed with `seder_string_free`. Returns NULL on null inputs.
+#[no_mangle]
+pub unsafe extern "C" fn seder_expand_template(
+    template: *const c_char,
+    project_name: *const c_char,
+    shoot_date: *const c_char,
+    card_name: *const c_char,
+    camera_id: *const c_char,
+) -> *mut c_char {
+    let result = catch_unwind(|| {
+        if template.is_null() {
+            return std::ptr::null_mut::<c_char>();
+        }
+        let metadata = ProjectMetadata {
+            project_name: unsafe { cstr_to_string(project_name) },
+            shoot_date: unsafe { cstr_to_string(shoot_date) },
+            card_name: unsafe { cstr_to_string(card_name) },
+            camera_id: unsafe { cstr_to_string(camera_id) },
+        };
+        let tpl = unsafe { cstr_to_string(template) };
+        let expanded = crate::offload::template::expand(&tpl, &metadata);
+        match CString::new(expanded) {
+            Ok(c) => c.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+    result.unwrap_or(std::ptr::null_mut())
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -596,6 +882,65 @@ fn chrono_nowish() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
+
+    fn cs(s: &str) -> CString {
+        CString::new(s).unwrap()
+    }
+
+    #[test]
+    fn version_is_newer_basic_comparisons() {
+        unsafe {
+            assert_eq!(
+                seder_version_is_newer(cs("1.0.0").as_ptr(), cs("1.0.1").as_ptr()),
+                1
+            );
+            assert_eq!(
+                seder_version_is_newer(cs("1.0.1").as_ptr(), cs("1.0.0").as_ptr()),
+                0
+            );
+            assert_eq!(
+                seder_version_is_newer(cs("1.0.0").as_ptr(), cs("1.0.0").as_ptr()),
+                0
+            );
+            assert_eq!(
+                seder_version_is_newer(cs("0.0.16").as_ptr(), cs("1.0.0").as_ptr()),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn version_is_newer_accepts_v_prefix() {
+        unsafe {
+            assert_eq!(
+                seder_version_is_newer(cs("v1.0.0").as_ptr(), cs("v1.0.1").as_ptr()),
+                1
+            );
+            assert_eq!(
+                seder_version_is_newer(cs("1.0.0").as_ptr(), cs("v1.0.1").as_ptr()),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn version_is_newer_handles_invalid_input() {
+        unsafe {
+            assert_eq!(
+                seder_version_is_newer(cs("garbage").as_ptr(), cs("1.0.0").as_ptr()),
+                0
+            );
+            assert_eq!(
+                seder_version_is_newer(cs("1.0.0").as_ptr(), cs("garbage").as_ptr()),
+                0
+            );
+            assert_eq!(
+                seder_version_is_newer(std::ptr::null(), cs("1.0.0").as_ptr()),
+                0
+            );
+        }
+    }
 
     #[test]
     fn chrono_nowish_format() {

@@ -21,9 +21,14 @@ VERSION=vX.Y.Z scripts/release-artifacts.sh --list
 
 Download `SHA256SUMS.txt` from the same release and verify the file before launching.
 
-### Signing
+### Verification
 
-Builds are ad-hoc signed by SEDER Productions for tamper-detection. macOS may still ask you to right-click → Open the first time, and Windows SmartScreen will show a "More info → Run anyway" prompt — Apple notarization and a paid Windows Authenticode certificate are not configured.
+Builds are **unsigned**. Verify integrity by comparing the downloaded
+archive against the matching entry in `SHA256SUMS.txt` from the same
+release. macOS Gatekeeper may require right-click → Open on first launch,
+and Windows SmartScreen will show "More info → Run anyway" — Apple
+notarization and a paid Windows Authenticode certificate are not
+configured for this project.
 
 ## Features
 

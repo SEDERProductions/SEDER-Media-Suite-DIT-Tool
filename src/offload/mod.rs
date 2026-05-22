@@ -1,9 +1,17 @@
 use std::path::PathBuf;
 
+pub mod checkpoint;
 pub mod engine;
-pub mod progress;
-pub mod verify;
+pub mod ffprobe;
+pub mod hash;
+pub mod media;
+pub mod proxy;
+pub mod template;
+pub mod thumbnail;
 pub mod volume;
+
+pub use ffprobe::ClipMetadata;
+pub use hash::ChecksumAlgo;
 
 #[derive(Debug, Clone)]
 pub struct DestinationConfig {
@@ -27,6 +35,11 @@ pub struct OffloadOptions {
     pub sync_writes: bool,
     pub skip_existing: bool,
     pub generate_report: bool,
+    pub algorithm: ChecksumAlgo,
+    /// When true, scan_source will additionally invoke ffprobe on each
+    /// recognised media file and attach a ClipMetadata to its FileEntry.
+    /// Silently a no-op if ffprobe isn't available on the host.
+    pub extract_metadata: bool,
 }
 
 impl Default for OffloadOptions {
@@ -38,6 +51,8 @@ impl Default for OffloadOptions {
             sync_writes: true,
             skip_existing: false,
             generate_report: true,
+            algorithm: ChecksumAlgo::Blake3,
+            extract_metadata: false,
         }
     }
 }
@@ -65,7 +80,10 @@ pub enum DestinationState {
 pub struct FileEntry {
     pub relative_path: String,
     pub size: u64,
-    pub source_blake3: String,
+    pub source_hash: String,
+    pub algorithm: ChecksumAlgo,
+    /// Populated only when extract_metadata was on and ffprobe succeeded.
+    pub metadata: Option<ClipMetadata>,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +91,10 @@ pub struct SourceScan {
     pub files: Vec<FileEntry>,
     pub total_size: u64,
     pub total_files: u64,
+    /// Relative paths that matched an ignore rule (hidden/system or glob).
+    /// Tracked so the MHL <ignored> block can faithfully report what was
+    /// excluded from the transfer.
+    pub ignored_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

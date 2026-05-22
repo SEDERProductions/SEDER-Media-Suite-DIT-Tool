@@ -1,5 +1,8 @@
 #include "AppController.h"
 
+#include "SettingsStore.h"
+#include "seder_ffi.h"
+
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -23,11 +26,34 @@ void setIfChanged(T &field, const T &value, const std::function<void()> &notify)
 
 } // namespace
 
-AppController::AppController(QObject *parent)
+AppController::AppController(SettingsStore *settings, QObject *parent)
     : QObject(parent)
+    , m_settings(settings)
     , m_destinationModel(new DestinationListModel(this))
 {
+    if (m_settings) {
+        m_ignorePatterns = m_settings->defaultIgnorePatterns();
+        m_ignoreHiddenSystem = m_settings->defaultIgnoreHiddenSystem();
+        m_verifyAfterCopy = m_settings->defaultVerifyAfterCopy();
+        m_skipExisting = m_settings->defaultSkipExisting();
+        m_generateReport = m_settings->defaultGenerateReport();
+        m_checksumAlgorithm = m_settings->defaultChecksumAlgorithm();
+        m_extractMetadata = m_settings->defaultExtractMetadata();
+        m_projectName = m_settings->lastProjectName();
+        m_shootDate = m_settings->lastShootDate();
+        m_cardName = m_settings->lastCardName();
+        m_cameraId = m_settings->lastCameraId();
+    }
     appendLog(QStringLiteral("Ready to offload media."));
+}
+
+QString AppController::appVersion() const
+{
+#ifdef SEDER_DIT_VERSION
+    return QString::fromLatin1(SEDER_DIT_VERSION);
+#else
+    return QStringLiteral("0.0.0");
+#endif
 }
 
 QString AppController::sourcePath() const { return m_sourcePath; }
@@ -51,6 +77,29 @@ bool AppController::skipExisting() const { return m_skipExisting; }
 void AppController::setSkipExisting(bool value) { if (m_skipExisting != value) { m_skipExisting = value; emit skipExistingChanged(); } }
 bool AppController::generateReport() const { return m_generateReport; }
 void AppController::setGenerateReport(bool value) { if (m_generateReport != value) { m_generateReport = value; emit generateReportChanged(); } }
+QString AppController::checksumAlgorithm() const { return m_checksumAlgorithm; }
+bool AppController::extractMetadata() const { return m_extractMetadata; }
+void AppController::setExtractMetadata(bool value)
+{
+    if (m_extractMetadata == value) return;
+    m_extractMetadata = value;
+    emit extractMetadataChanged();
+}
+bool AppController::ffprobeAvailable() const { return seder_ffprobe_available() != 0; }
+bool AppController::ffmpegAvailable() const { return seder_ffmpeg_available() != 0; }
+bool AppController::canExportMetadataJson() const { return !m_metadataJsonExport.isEmpty(); }
+void AppController::setChecksumAlgorithm(const QString &value)
+{
+    const QString upper = value.trimmed().toUpper();
+    static const QStringList valid = {
+        QStringLiteral("BLAKE3"), QStringLiteral("MD5"), QStringLiteral("SHA1"),
+        QStringLiteral("XXH3-64"), QStringLiteral("XXH3-128")
+    };
+    const QString normalized = valid.contains(upper) ? upper : QStringLiteral("BLAKE3");
+    if (m_checksumAlgorithm == normalized) return;
+    m_checksumAlgorithm = normalized;
+    emit checksumAlgorithmChanged();
+}
 bool AppController::busy() const { return m_busy; }
 double AppController::overallProgress() const { return m_overallProgress; }
 QString AppController::statusText() const { return m_statusText; }
@@ -68,7 +117,7 @@ void AppController::chooseSourceFolder()
 {
     const QString path = QFileDialog::getExistingDirectory(nullptr, tr("Choose Source Folder"), m_sourcePath);
     if (!path.isEmpty()) {
-        setSourcePath(path);
+        addSourceFromPath(path);
     }
 }
 
@@ -76,8 +125,98 @@ void AppController::addDestinationFolder()
 {
     const QString path = QFileDialog::getExistingDirectory(nullptr, tr("Choose Destination Folder"), QString());
     if (!path.isEmpty()) {
-        m_destinationModel->addDestination(path);
+        addDestinationFromPath(path);
     }
+}
+
+void AppController::addSourceFromPath(const QString &path)
+{
+    if (path.isEmpty()) return;
+    const QFileInfo fi(path);
+    if (!fi.exists() || !fi.isDir()) {
+        appendLog(tr("Source folder does not exist: %1").arg(path), LogSeverity::Warn);
+        return;
+    }
+    setSourcePath(fi.absoluteFilePath());
+    if (m_settings) {
+        m_settings->rememberSource(fi.absoluteFilePath());
+    }
+}
+
+void AppController::addDestinationFromPath(const QString &path)
+{
+    if (path.isEmpty()) return;
+    const QFileInfo fi(path);
+    if (!fi.exists() || !fi.isDir()) {
+        appendLog(tr("Destination folder does not exist: %1").arg(path), LogSeverity::Warn);
+        return;
+    }
+
+    QString finalPath = fi.absoluteFilePath();
+    if (m_settings && !m_settings->destinationTemplate().isEmpty()) {
+        const QString subfolder = previewDestinationTemplate(QString());
+        if (!subfolder.isEmpty()) {
+            QDir dir(finalPath);
+            const QString combined = dir.filePath(subfolder);
+            QDir target(combined);
+            if (!target.exists()) {
+                if (!target.mkpath(QStringLiteral("."))) {
+                    appendLog(tr("Failed to create template directory: %1").arg(combined),
+                              LogSeverity::Warn);
+                    // Fall back to using the base path as-is
+                    m_destinationModel->addDestination(finalPath);
+                    if (m_settings) m_settings->rememberDestination(finalPath);
+                    return;
+                }
+                appendLog(tr("Created directory from template: %1").arg(combined));
+            }
+            finalPath = combined;
+        }
+    }
+
+    m_destinationModel->addDestination(finalPath);
+    if (m_settings) {
+        m_settings->rememberDestination(finalPath);
+    }
+}
+
+QString AppController::previewDestinationTemplate(const QString &basePath) const
+{
+    if (!m_settings) return basePath;
+    const QString tpl = m_settings->destinationTemplate();
+    if (tpl.isEmpty()) return basePath;
+
+    const QByteArray tplBytes = tpl.toUtf8();
+    const QByteArray projectBytes = m_projectName.toUtf8();
+    const QByteArray dateBytes = m_shootDate.toUtf8();
+    const QByteArray cardBytes = m_cardName.toUtf8();
+    const QByteArray cameraBytes = m_cameraId.toUtf8();
+
+    char *expanded = seder_expand_template(
+        tplBytes.constData(),
+        projectBytes.constData(),
+        dateBytes.constData(),
+        cardBytes.constData(),
+        cameraBytes.constData());
+
+    if (!expanded) return basePath;
+    const QString sub = QString::fromUtf8(expanded);
+    seder_string_free(expanded);
+
+    if (basePath.isEmpty()) return sub;
+    return QDir(basePath).filePath(sub);
+}
+
+void AppController::applyDefaultsFromSettings()
+{
+    if (!m_settings) return;
+    setIgnorePatterns(m_settings->defaultIgnorePatterns());
+    setIgnoreHiddenSystem(m_settings->defaultIgnoreHiddenSystem());
+    setVerifyAfterCopy(m_settings->defaultVerifyAfterCopy());
+    setSkipExisting(m_settings->defaultSkipExisting());
+    setGenerateReport(m_settings->defaultGenerateReport());
+    setChecksumAlgorithm(m_settings->defaultChecksumAlgorithm());
+    setExtractMetadata(m_settings->defaultExtractMetadata());
 }
 
 void AppController::copyDestinationPath(int sourceIndex)
@@ -138,6 +277,9 @@ void AppController::copyDestinationPath(int sourceIndex)
     }
 
     m_destinationModel->addDestination(targetPath);
+    if (m_settings) {
+        m_settings->rememberDestination(targetPath);
+    }
 }
 
 void AppController::syncDestinationPaths()
@@ -191,10 +333,20 @@ void AppController::startOffload()
     request.cardName = m_cardName;
     request.cameraId = m_cameraId;
     request.ignorePatterns = m_ignorePatterns;
+    request.checksumAlgorithm = m_checksumAlgorithm;
+    request.extractMetadata = m_extractMetadata && ffprobeAvailable();
     request.ignoreHiddenSystem = m_ignoreHiddenSystem;
     request.verifyAfterCopy = m_verifyAfterCopy;
     request.skipExisting = m_skipExisting;
     request.generateReport = m_generateReport;
+
+    if (m_settings) {
+        m_settings->setLastProjectMetadata(m_projectName, m_shootDate, m_cardName, m_cameraId);
+        m_settings->rememberSource(m_sourcePath);
+        for (auto *item : m_destinationModel->items()) {
+            m_settings->rememberDestination(item->path());
+        }
+    }
 
     setBusy(true);
     setOverallProgress(0.0);
@@ -204,6 +356,8 @@ void AppController::startOffload()
     m_canExport = false;
     m_canExportMhl = false;
     m_mhlExport.clear();
+    m_metadataJsonExport.clear();
+    m_aleExport.clear();
     m_finalStatus = QStringLiteral("FAIL");
     m_verificationPerformed = false;
     emit exportStateChanged();
@@ -390,10 +544,13 @@ void AppController::startOffload()
         m_canExport = true;
         m_mhlExport = request.verifyAfterCopy ? report.mhlExport : QString();
         m_canExportMhl = request.verifyAfterCopy && !m_mhlExport.trimmed().isEmpty();
+        m_metadataJsonExport = report.metadataJsonExport;
+        m_aleExport = report.aleExport;
         m_finalStatus = report.finalStatus;
         m_verificationPerformed = report.verificationPerformed;
         emit exportStateChanged();
         emit canExportMhlChanged();
+        emit canExportMetadataJsonChanged();
         emit summaryChanged();
     });
     connect(worker, &DitOffloadWorker::failed, this, [this](const QString &message) {
@@ -446,6 +603,33 @@ void AppController::exportMhl()
         return;
     }
     writeExport(tr("Export MHL Report"), QStringLiteral("seder-dit-report.mhl"), m_mhlExport);
+}
+
+void AppController::exportMetadataJson()
+{
+    if (!canExportMetadataJson()) {
+        setStatusText(QStringLiteral("No metadata JSON to export."));
+        appendLog(QStringLiteral("Metadata JSON export skipped: extract metadata was not enabled "
+                                 "or ffprobe was not available."),
+                  LogSeverity::Warn);
+        return;
+    }
+    writeExport(tr("Export Metadata JSON"),
+                QStringLiteral("seder-dit-metadata.json"),
+                m_metadataJsonExport);
+}
+
+void AppController::exportAle()
+{
+    if (m_aleExport.isEmpty()) {
+        setStatusText(QStringLiteral("No ALE to export."));
+        appendLog(QStringLiteral("ALE export skipped: no offload has completed yet."),
+                  LogSeverity::Warn);
+        return;
+    }
+    writeExport(tr("Export ALE (Avid Log Exchange)"),
+                QStringLiteral("seder-dit-report.ale"),
+                m_aleExport);
 }
 
 QString AppController::formatBytes(quint64 value) const
