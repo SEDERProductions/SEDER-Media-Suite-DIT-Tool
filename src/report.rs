@@ -471,12 +471,20 @@ mod tests {
 
         let csv = report_csv(&report);
 
-        assert!(!csv.contains("\"\"\""));
+        // Each field is quoted exactly once: the outer quotes come from
+        // csv_field() alone, and embedded quotes are doubled per RFC 4180.
+        // A value ending in a quote (e.g. `Backup "A"`) legitimately yields
+        // a `"""` run (doubled quote + field-closing quote), so we assert
+        // the exact escaped forms rather than a blanket "no triple quote".
         assert!(csv.contains("\"Backup \"\"A\"\"\""));
         assert!(csv.contains("\"/Volumes/BACKUP, 01\""));
         assert!(csv.contains("\"Copy-only (Unverified)\""));
         assert!(csv.contains("\"COPIED (UNVERIFIED)\""));
         assert!(csv.contains("\"bad \"\"checksum\"\"\""));
+        // Guard against the old double-wrapping bug: a field's value should
+        // never be wrapped in two layers of quotes (e.g. `""Verified""`).
+        assert!(!csv.contains("\"\"Verified\"\""));
+        assert!(!csv.contains("\"\"Copy-only"));
     }
 
     #[test]
