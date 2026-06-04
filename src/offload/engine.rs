@@ -94,20 +94,7 @@ pub fn scan_source(
         None
     };
 
-    let ignore_glob = if !options.ignore_patterns.is_empty() {
-        let mut builder = GlobSetBuilder::new();
-        for p in &options.ignore_patterns {
-            let trimmed = p.trim();
-            if !trimmed.is_empty() {
-                if let Ok(glob) = Glob::new(trimmed) {
-                    builder.add(glob);
-                }
-            }
-        }
-        Some(builder.build().unwrap())
-    } else {
-        None
-    };
+    let ignore_glob = build_ignore_glob(&options.ignore_patterns);
 
     for entry in walker {
         let entry = entry?;
@@ -190,6 +177,102 @@ pub fn scan_source(
         total_files,
         ignored_paths,
     })
+}
+
+/// Build the glob ignore set from a list of patterns. Returns `None` when
+/// there are no patterns (or none compile). Shared by `scan_source` and
+/// `walk_media` so both honour the exact same ignore semantics.
+fn build_ignore_glob(patterns: &[String]) -> Option<globset::GlobSet> {
+    let mut builder = GlobSetBuilder::new();
+    let mut added = false;
+    for p in patterns {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            if let Ok(glob) = Glob::new(trimmed) {
+                builder.add(glob);
+                added = true;
+            }
+        }
+    }
+    if !added {
+        return None;
+    }
+    // build() only fails on pathological inputs; degrade to no-ignore rather
+    // than panic (release builds use panic=abort, so a panic would crash).
+    builder.build().ok()
+}
+
+/// A single media file discovered by [`walk_media`], described without any
+/// hashing or I/O beyond a `stat`. Drives the pre-offload media browser,
+/// which needs a fast listing rather than integrity checksums.
+#[derive(Debug, Clone)]
+pub struct MediaListEntry {
+    pub relative_path: String,
+    pub absolute_path: String,
+    pub size: u64,
+    pub kind: MediaKind,
+}
+
+/// Walk `source` applying the same hidden/system + glob-ignore rules as
+/// [`scan_source`], but WITHOUT opening or hashing files. Invokes `visit`
+/// once per kept file. This is the cheap counterpart used to populate the
+/// thumbnail/media browser before (or instead of) a full verified offload.
+pub fn walk_media(
+    source: &Path,
+    options: &OffloadOptions,
+    mut visit: impl FnMut(MediaListEntry),
+) -> anyhow::Result<()> {
+    use walkdir::WalkDir;
+
+    let walker = WalkDir::new(source)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| {
+            if !options.ignore_hidden_system {
+                return true;
+            }
+            if entry.depth() == 0 {
+                return true;
+            }
+            !is_hidden_or_system(entry.path())
+        });
+
+    let ignore_glob = build_ignore_glob(&options.ignore_patterns);
+
+    for entry in walker {
+        let entry = entry?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+
+        let path = entry.path();
+        let relative = path.strip_prefix(source)?;
+        let rel_str = relative.to_string_lossy().replace('\\', "/");
+
+        if options.ignore_hidden_system && is_hidden_or_system(path) {
+            continue;
+        }
+        if let Some(ref gs) = ignore_glob {
+            let basename = Path::new(&rel_str)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&rel_str);
+            if gs.is_match(rel_str.as_str()) || gs.is_match(basename) {
+                continue;
+            }
+        }
+
+        let size = entry.metadata()?.len();
+        let kind = classify(&rel_str);
+        visit(MediaListEntry {
+            relative_path: rel_str,
+            absolute_path: path.to_string_lossy().replace('\\', "/"),
+            size,
+            kind,
+        });
+    }
+
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -658,6 +741,47 @@ mod tests {
 
         assert_eq!(scan.total_files, 1);
         assert_eq!(scan.files[0].relative_path, ".hidden_dir/clip.mxf");
+    }
+
+    #[test]
+    fn walk_media_lists_without_hashing_and_classifies() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("A001.mxf"), b"video").unwrap();
+        std::fs::write(temp.path().join("notes.wav"), b"audio").unwrap();
+        std::fs::create_dir(temp.path().join(".hidden")).unwrap();
+        std::fs::write(temp.path().join(".hidden").join("h.mxf"), b"x").unwrap();
+
+        let mut found: Vec<(String, MediaKind, u64)> = Vec::new();
+        walk_media(temp.path(), &OffloadOptions::default(), |e| {
+            found.push((e.relative_path, e.kind, e.size));
+        })
+        .unwrap();
+
+        // Hidden dir excluded by default; two visible files remain.
+        assert_eq!(found.len(), 2);
+        assert!(found
+            .iter()
+            .any(|(p, k, _)| p == "A001.mxf" && *k == MediaKind::Mxf));
+        assert!(found
+            .iter()
+            .any(|(p, k, _)| p == "notes.wav" && *k == MediaKind::Audio));
+        assert!(found.iter().all(|(p, _, _)| p != ".hidden/h.mxf"));
+    }
+
+    #[test]
+    fn walk_media_respects_glob_ignore() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("keep.mxf"), b"a").unwrap();
+        std::fs::write(temp.path().join("drop.wav"), b"b").unwrap();
+
+        let options = OffloadOptions {
+            ignore_patterns: vec!["*.wav".to_string()],
+            ..OffloadOptions::default()
+        };
+        let mut paths: Vec<String> = Vec::new();
+        walk_media(temp.path(), &options, |e| paths.push(e.relative_path)).unwrap();
+
+        assert_eq!(paths, vec!["keep.mxf".to_string()]);
     }
 
     #[test]

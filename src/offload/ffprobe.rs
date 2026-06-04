@@ -68,6 +68,16 @@ pub fn discover_ffmpeg() -> Option<PathBuf> {
 }
 
 fn discover_binary(name: &str) -> Option<PathBuf> {
+    // 1. Binaries shipped next to / inside the app bundle win, so a packaged
+    //    SEDER build always uses its vendored ffmpeg suite regardless of the
+    //    host PATH (and works on machines with no ffmpeg installed at all).
+    for dir in bundled_dirs() {
+        let candidate = candidate_for(&dir, name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    // 2. PATH.
     if let Ok(path_var) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path_var) {
             let candidate = candidate_for(&dir, name);
@@ -76,6 +86,7 @@ fn discover_binary(name: &str) -> Option<PathBuf> {
             }
         }
     }
+    // 3. Well-known install locations (GUI launches often inherit a stunted PATH).
     for fallback in fallback_dirs() {
         let candidate = candidate_for(&fallback, name);
         if candidate.is_file() {
@@ -83,6 +94,29 @@ fn discover_binary(name: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Directories searched before PATH: alongside the running executable and,
+/// on macOS, the bundle's `Resources` folder. This lets a packaged build
+/// ship a vendored ffmpeg/ffprobe that takes precedence over any host
+/// install. Empty when the executable path can't be resolved.
+fn bundled_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            // Windows: next to the .exe. Linux AppImage/tarball: usr/bin.
+            // macOS: <App>.app/Contents/MacOS.
+            dirs.push(dir.to_path_buf());
+            #[cfg(target_os = "macos")]
+            {
+                // .../Contents/MacOS/<exe> -> .../Contents/Resources
+                if let Some(contents) = dir.parent() {
+                    dirs.push(contents.join("Resources"));
+                }
+            }
+        }
+    }
+    dirs
 }
 
 fn candidate_for(dir: &Path, name: &str) -> PathBuf {
@@ -387,5 +421,18 @@ mod tests {
         // the discoverer doesn't crash regardless of environment.
         let _ = discover();
         let _ = discover_ffmpeg();
+    }
+
+    #[test]
+    fn bundled_dirs_lists_the_executable_directory() {
+        let dirs = bundled_dirs();
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                assert!(
+                    dirs.iter().any(|d| d == parent),
+                    "bundled_dirs should include the executable's directory"
+                );
+            }
+        }
     }
 }
