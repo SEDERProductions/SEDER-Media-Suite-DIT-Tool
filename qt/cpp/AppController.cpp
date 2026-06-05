@@ -5,13 +5,17 @@
 
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QGuiApplication>
 #include <QClipboard>
 #include <QDateTime>
 #include <QDir>
 #include <QSaveFile>
+#include <QStandardPaths>
 #include <QThread>
 #include <QRegularExpression>
+#include <QUrl>
+#include <QtConcurrentRun>
 #include <functional>
 
 namespace {
@@ -30,7 +34,15 @@ AppController::AppController(SettingsStore *settings, QObject *parent)
     : QObject(parent)
     , m_settings(settings)
     , m_destinationModel(new DestinationListModel(this))
+    , m_mediaModel(new MediaListModel(this))
 {
+    // On-disk thumbnail cache, shared across runs. Keyed by size+mtime, so it
+    // survives source renames and only regenerates when a file changes.
+    const QString cacheRoot =
+        QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    m_thumbCacheDir = QDir(cacheRoot).filePath(QStringLiteral("thumbnails"));
+    QDir().mkpath(m_thumbCacheDir);
+
     if (m_settings) {
         m_ignorePatterns = m_settings->defaultIgnorePatterns();
         m_ignoreHiddenSystem = m_settings->defaultIgnoreHiddenSystem();
@@ -47,6 +59,19 @@ AppController::AppController(SettingsStore *settings, QObject *parent)
     appendLog(QStringLiteral("Ready to offload media."));
 }
 
+AppController::~AppController()
+{
+    // Stop any in-flight thumbnail generation and let the thread unwind so we
+    // don't tear down a running QThread underneath the pool.
+    if (m_thumbWorker) {
+        m_thumbWorker->cancel();
+    }
+    if (m_thumbThread) {
+        m_thumbThread->quit();
+        m_thumbThread->wait(3000);
+    }
+}
+
 QString AppController::appVersion() const
 {
 #ifdef SEDER_DIT_VERSION
@@ -59,6 +84,8 @@ QString AppController::appVersion() const
 QString AppController::sourcePath() const { return m_sourcePath; }
 void AppController::setSourcePath(const QString &value) { setIfChanged(m_sourcePath, value, [this] { emit sourcePathChanged(); }); }
 DestinationListModel *AppController::destinationModel() const { return m_destinationModel; }
+MediaListModel *AppController::mediaModel() const { return m_mediaModel; }
+bool AppController::mediaScanning() const { return m_mediaScanning; }
 QString AppController::projectName() const { return m_projectName; }
 void AppController::setProjectName(const QString &value) { setIfChanged(m_projectName, value.trimmed(), [this] { emit projectNameChanged(); }); }
 QString AppController::shootDate() const { return m_shootDate; }
@@ -140,6 +167,128 @@ void AppController::addSourceFromPath(const QString &path)
     setSourcePath(fi.absoluteFilePath());
     if (m_settings) {
         m_settings->rememberSource(fi.absoluteFilePath());
+    }
+    // Populate the media browser for the freshly chosen source.
+    loadSourceMedia();
+}
+
+void AppController::loadSourceMedia()
+{
+    if (m_sourcePath.isEmpty()) {
+        clearSourceMedia();
+        return;
+    }
+    // Abandon any thumbnails still generating for a previous source.
+    stopThumbnailGeneration();
+
+    m_mediaScanning = true;
+    emit mediaScanningChanged();
+
+    // The walk only stats files (no hashing), but a card with thousands of
+    // clips can still take a moment — run it off the UI thread.
+    const QString source = m_sourcePath;
+    const QString ignore = m_ignorePatterns;
+    const bool ignoreHidden = m_ignoreHiddenSystem;
+
+    auto *watcher = new QFutureWatcher<QString>(this);
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher]() {
+        const QString json = watcher->result();
+        watcher->deleteLater();
+        m_mediaScanning = false;
+        emit mediaScanningChanged();
+        m_mediaModel->resetFromJson(json.toUtf8());
+        startThumbnailGeneration();
+    });
+    watcher->setFuture(QtConcurrent::run([source, ignore, ignoreHidden]() -> QString {
+        const QByteArray s = source.toUtf8();
+        const QByteArray ig = ignore.toUtf8();
+        char *json = seder_scan_media_list(s.constData(), ig.constData(), ignoreHidden ? 1 : 0);
+        if (!json) return QStringLiteral("[]");
+        const QString result = QString::fromUtf8(json);
+        seder_string_free(json);
+        return result;
+    }));
+}
+
+void AppController::clearSourceMedia()
+{
+    stopThumbnailGeneration();
+    m_mediaModel->clear();
+}
+
+QString AppController::formatBreakdownJson() const
+{
+    if (m_sourcePath.isEmpty()) return QStringLiteral("[]");
+    const QByteArray s = m_sourcePath.toUtf8();
+    const QByteArray ig = m_ignorePatterns.toUtf8();
+    char *json = seder_format_breakdown(s.constData(), ig.constData(), m_ignoreHiddenSystem ? 1 : 0);
+    if (!json) return QStringLiteral("[]");
+    const QString result = QString::fromUtf8(json);
+    seder_string_free(json);
+    return result;
+}
+
+void AppController::startThumbnailGeneration()
+{
+    if (!ffmpegAvailable()) {
+        // Without ffmpeg, every video candidate falls back to a format badge
+        // rather than spinning forever.
+        const auto entries = m_mediaModel->entries();
+        for (const auto &e : entries) {
+            if (e.thumbnailState == MediaListModel::NoThumb) {
+                m_mediaModel->setThumbnailState(e.absolutePath, MediaListModel::Failed);
+            }
+        }
+        return;
+    }
+
+    QVector<ThumbnailWorker::Job> jobs;
+    const auto entries = m_mediaModel->entries();
+    for (const auto &e : entries) {
+        if (e.thumbnailState != MediaListModel::NoThumb) continue;
+        const QFileInfo fi(e.absolutePath);
+        const QString key = QStringLiteral("%1-%2")
+            .arg(e.size)
+            .arg(fi.lastModified().toSecsSinceEpoch());
+        jobs.append({ e.absolutePath, key });
+        m_mediaModel->setThumbnailState(e.absolutePath, MediaListModel::Pending);
+    }
+    if (jobs.isEmpty()) return;
+
+    auto *thread = new QThread(this);
+    auto *worker = new ThumbnailWorker(std::move(jobs), m_thumbCacheDir);
+    m_thumbWorker = worker;
+    m_thumbThread = thread;
+    worker->moveToThread(thread);
+
+    connect(thread, &QThread::started, worker, &ThumbnailWorker::run);
+    connect(worker, &ThumbnailWorker::thumbnailReady, this,
+            [this](const QString &absolutePath, const QString &thumbPath, bool ok) {
+        if (ok && !thumbPath.isEmpty()) {
+            m_mediaModel->setThumbnail(absolutePath, QUrl::fromLocalFile(thumbPath),
+                                       MediaListModel::Ready);
+        } else {
+            m_mediaModel->setThumbnailState(absolutePath, MediaListModel::Failed);
+        }
+    });
+    connect(worker, &ThumbnailWorker::finished, thread, &QThread::quit);
+    connect(thread, &QThread::finished, worker, &QObject::deleteLater);
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    // Only clear the handles if they still point at this generation; a newer
+    // source may have replaced them already.
+    connect(thread, &QThread::finished, this, [this, worker, thread]() {
+        if (m_thumbWorker == worker) m_thumbWorker = nullptr;
+        if (m_thumbThread == thread) m_thumbThread = nullptr;
+    });
+    thread->start();
+}
+
+void AppController::stopThumbnailGeneration()
+{
+    // Cooperatively cancel; the worker breaks out of its loop, the thread
+    // quits, and the finished() handlers clean everything up.
+    if (m_thumbWorker) {
+        m_thumbWorker->cancel();
     }
 }
 

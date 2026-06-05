@@ -97,6 +97,26 @@ ApplicationWindow {
     AboutDialog { id: aboutDialog; anchors.centerIn: parent }
     PreferencesDialog { id: preferencesDialog; anchors.centerIn: parent }
 
+    Connections {
+        target: appController
+        // Jump to the Activity Log when an offload starts so progress is visible.
+        function onBusyChanged() {
+            if (appController.busy) root.contentTab = 1
+        }
+        // Refresh the format breakdown once a source scan finishes.
+        function onMediaScanningChanged() {
+            if (!appController.mediaScanning) {
+                try {
+                    root.formatBreakdown = JSON.parse(appController.formatBreakdownJson())
+                } catch (e) {
+                    root.formatBreakdown = []
+                }
+                if (!appController.busy && appController.mediaModel.count > 0)
+                    root.contentTab = 0
+            }
+        }
+    }
+
     readonly property bool dark: themeController.dark
     readonly property color bg: dark ? "#12110f" : "#ece6d9"
     readonly property color panel: dark ? "#1f1d1a" : "#f8f4ea"
@@ -114,6 +134,10 @@ ApplicationWindow {
 
     property bool metadataExpanded: false
     property bool logAutoScrollEnabled: true
+    // Right-hand content: 0 = Browse (media grid), 1 = Activity Log.
+    property int contentTab: 0
+    // Per-format breakdown for the source, refreshed when a scan completes.
+    property var formatBreakdown: []
     readonly property real scaleFactor: Math.max(1.0, Math.min(Screen.devicePixelRatio, 2.0))
     readonly property int spaceSmall: Math.round(6 * scaleFactor)
     readonly property int spaceMedium: Math.round(10 * scaleFactor)
@@ -689,115 +713,183 @@ ApplicationWindow {
                     anchors.margins: 16
                     spacing: 12
 
-                    Rectangle {
-                        visible: appController.logLines.length === 0 && !appController.busy && !appController.canExport
-                        Layout.alignment: Qt.AlignCenter
-                        Layout.preferredWidth: 480
-                        Layout.preferredHeight: 220
-                        color: "transparent"
-                        Column {
-                            anchors.centerIn: parent
-                            spacing: 16
-                            Text {
-                                text: "Ready For Offload"
-                                color: ink
-                                font.family: root.sans
-                                font.pixelSize: 24
-                                font.bold: true
-                                horizontalAlignment: Text.AlignHCenter
-                                width: 480
-                            }
-                            Column {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                spacing: 8
-                                Repeater {
-                                    model: [
-                                        "1. Choose a Source folder",
-                                        "2. Add one or more Destinations",
-                                        "3. Configure Options",
-                                        "4. Click Start Offload"
-                                    ]
-                                    Text {
-                                        text: modelData
-                                        color: muted
-                                        font.family: root.sans
-                                        font.pixelSize: 14
-                                        horizontalAlignment: Text.AlignHCenter
-                                        width: 480
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: appController.logLines.length > 0 || appController.busy
                         spacing: 8
-                        MetaLabel { text: "Activity Log" }
+                        QuietButton {
+                            text: "Browse"
+                            variant: root.contentTab === 0 ? "primary" : "neutral"
+                            onClicked: root.contentTab = 0
+                            Accessible.name: "Show media browser"
+                        }
+                        QuietButton {
+                            text: "Activity Log"
+                            variant: root.contentTab === 1 ? "primary" : "neutral"
+                            onClicked: root.contentTab = 1
+                            Accessible.name: "Show activity log"
+                        }
                         Item { Layout.fillWidth: true }
                         Text {
-                            text: appController.logLines.length + " entries"
+                            text: root.contentTab === 0
+                                  ? appController.mediaModel.count + " clips"
+                                  : appController.logLines.length + " entries"
                             color: faint
                             font.family: root.mono
                             font.pixelSize: 10
                         }
                     }
 
-                    Rectangle {
+                    StackLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        visible: appController.logLines.length > 0 || appController.busy
-                        color: panel
-                        border.color: line
-                        radius: 2
-                        ListView {
-                            id: logListView
-                            anchors.fill: parent
-                            anchors.margins: 8
-                            clip: true
-                            model: appController.logLines
-                            spacing: 2
-                            onCountChanged: {
-                                if (root.logAutoScrollEnabled && count > 0) {
-                                    positionViewAtEnd()
-                                }
-                            }
-                            onContentYChanged: {
-                                const atBottom = (contentY + height) >= (contentHeight - 8)
-                                if (!appController.busy) {
-                                    root.logAutoScrollEnabled = true
-                                } else {
-                                    root.logAutoScrollEnabled = atBottom
-                                }
-                            }
-                            delegate: RowLayout {
-                                width: ListView.view.width
+                        currentIndex: root.contentTab
+
+                        // 0 — Browse: format breakdown + media grid, with
+                        // empty / scanning / no-ffmpeg fallbacks.
+                        ColumnLayout {
+                            spacing: 10
+
+                            Flow {
+                                Layout.fillWidth: true
+                                visible: root.formatBreakdown.length > 0
                                 spacing: 8
-                                property string severity: root.logSeverity(modelData)
-                                property color sevColor: severity === "ERROR" ? bad : (severity === "WARN" ? warn : muted)
-                                Text {
-                                    text: severity === "ERROR" ? "⛔" : (severity === "WARN" ? "⚠" : "•")
-                                    color: parent.sevColor
-                                    font.family: root.sans
-                                    font.pixelSize: 11
-                                }
-                                Text {
-                                    text: root.logTimestamp(modelData)
-                                    color: faint
-                                    font.family: root.mono
-                                    font.pixelSize: 11
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: root.logMessage(modelData)
-                                    color: parent.sevColor
-                                    font.family: root.mono
-                                    font.pixelSize: 11
-                                    elide: Text.ElideRight
+                                Repeater {
+                                    model: root.formatBreakdown
+                                    Rectangle {
+                                        height: 22
+                                        width: chipText.implicitWidth + 20
+                                        radius: 11
+                                        color: panelAlt
+                                        border.color: line
+                                        Text {
+                                            id: chipText
+                                            anchors.centerIn: parent
+                                            text: modelData.kind + " · " + modelData.count + " · "
+                                                  + appController.formatBytes(modelData.bytes)
+                                            color: ink
+                                            font.family: root.mono
+                                            font.pixelSize: 10
+                                        }
+                                    }
                                 }
                             }
-                            ScrollBar.vertical: ScrollBar {}
+
+                            MediaGrid {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                visible: appController.mediaModel.count > 0
+                                model: appController.mediaModel
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                visible: appController.mediaModel.count === 0
+                                Column {
+                                    anchors.centerIn: parent
+                                    width: 480
+                                    spacing: 12
+                                    Text {
+                                        text: appController.mediaScanning ? "Scanning source…"
+                                              : (appController.sourcePath.length > 0
+                                                 ? "No media found in this source"
+                                                 : "Ready For Offload")
+                                        color: ink
+                                        font.family: root.sans
+                                        font.pixelSize: 24
+                                        font.bold: true
+                                        horizontalAlignment: Text.AlignHCenter
+                                        width: 480
+                                    }
+                                    Column {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        spacing: 8
+                                        visible: appController.sourcePath.length === 0 && !appController.mediaScanning
+                                        Repeater {
+                                            model: [
+                                                "1. Choose a Source folder to preview its media",
+                                                "2. Add one or more Destinations",
+                                                "3. Configure Options",
+                                                "4. Click Start Offload"
+                                            ]
+                                            Text {
+                                                text: modelData
+                                                color: muted
+                                                font.family: root.sans
+                                                font.pixelSize: 14
+                                                horizontalAlignment: Text.AlignHCenter
+                                                width: 480
+                                            }
+                                        }
+                                    }
+                                    Text {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        visible: !appController.ffmpegAvailable && appController.sourcePath.length > 0
+                                        text: "ffmpeg not found — clips show format badges instead of thumbnails."
+                                        color: warn
+                                        font.family: root.sans
+                                        font.pixelSize: 12
+                                        horizontalAlignment: Text.AlignHCenter
+                                        width: 480
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+                            }
+                        }
+
+                        // 1 — Activity Log.
+                        Rectangle {
+                            color: panel
+                            border.color: line
+                            radius: 2
+                            ListView {
+                                id: logListView
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                clip: true
+                                model: appController.logLines
+                                spacing: 2
+                                onCountChanged: {
+                                    if (root.logAutoScrollEnabled && count > 0) {
+                                        positionViewAtEnd()
+                                    }
+                                }
+                                onContentYChanged: {
+                                    const atBottom = (contentY + height) >= (contentHeight - 8)
+                                    if (!appController.busy) {
+                                        root.logAutoScrollEnabled = true
+                                    } else {
+                                        root.logAutoScrollEnabled = atBottom
+                                    }
+                                }
+                                delegate: RowLayout {
+                                    width: ListView.view.width
+                                    spacing: 8
+                                    property string severity: root.logSeverity(modelData)
+                                    property color sevColor: severity === "ERROR" ? bad : (severity === "WARN" ? warn : muted)
+                                    Text {
+                                        text: severity === "ERROR" ? "⛔" : (severity === "WARN" ? "⚠" : "•")
+                                        color: parent.sevColor
+                                        font.family: root.sans
+                                        font.pixelSize: 11
+                                    }
+                                    Text {
+                                        text: root.logTimestamp(modelData)
+                                        color: faint
+                                        font.family: root.mono
+                                        font.pixelSize: 11
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: root.logMessage(modelData)
+                                        color: parent.sevColor
+                                        font.family: root.mono
+                                        font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                                ScrollBar.vertical: ScrollBar {}
+                            }
                         }
                     }
                 }

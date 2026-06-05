@@ -15,7 +15,7 @@ set(CMAKE_AUTOMOC ON)
 include(CTest)
 include(GNUInstallDirs)
 
-set(SEDER_QT_COMPONENTS Core Gui Quick QuickControls2 Widgets)
+set(SEDER_QT_COMPONENTS Core Gui Quick QuickControls2 Widgets Concurrent)
 if(BUILD_TESTING)
     list(APPEND SEDER_QT_COMPONENTS Test)
 endif()
@@ -141,10 +141,14 @@ qt_add_executable(seder-media-suite-dit-qt
     cpp/DestinationListModel.h
     cpp/DitOffloadWorker.cpp
     cpp/DitOffloadWorker.h
+    cpp/MediaListModel.cpp
+    cpp/MediaListModel.h
     cpp/SettingsStore.cpp
     cpp/SettingsStore.h
     cpp/ThemeController.cpp
     cpp/ThemeController.h
+    cpp/ThumbnailWorker.cpp
+    cpp/ThumbnailWorker.h
     cpp/main.cpp
     cpp/seder_ffi.h
     ${SEDER_APP_PLATFORM_SOURCES}
@@ -163,6 +167,7 @@ qt_add_qml_module(seder-media-suite-dit-qt
         qml/StyledCheckBox.qml
         qml/StyledProgressBar.qml
         qml/PathPicker.qml
+        qml/MediaGrid.qml
         qml/AboutDialog.qml
         qml/PreferencesDialog.qml
 )
@@ -174,6 +179,7 @@ target_compile_definitions(seder-media-suite-dit-qt PRIVATE
 target_link_libraries(seder-media-suite-dit-qt
     PRIVATE
         Qt6::Core
+        Qt6::Concurrent
         Qt6::Gui
         Qt6::Quick
         Qt6::QuickControls2
@@ -219,6 +225,8 @@ if(BUILD_TESTING)
         cpp/DestinationItem.h
         cpp/DestinationListModel.cpp
         cpp/DestinationListModel.h
+        cpp/MediaListModel.cpp
+        cpp/MediaListModel.h
         cpp/seder_ffi.h
     )
     target_include_directories(dit_model_tests PRIVATE cpp)

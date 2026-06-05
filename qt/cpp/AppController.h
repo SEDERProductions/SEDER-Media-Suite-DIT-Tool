@@ -2,10 +2,14 @@
 
 #include "DestinationListModel.h"
 #include "DitOffloadWorker.h"
+#include "MediaListModel.h"
 #include "ThemeController.h"
+#include "ThumbnailWorker.h"
 
 #include <QObject>
+#include <QPointer>
 #include <QStringList>
+#include <QThread>
 
 class SettingsStore;
 
@@ -13,6 +17,8 @@ class AppController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString sourcePath READ sourcePath WRITE setSourcePath NOTIFY sourcePathChanged)
     Q_PROPERTY(DestinationListModel *destinationModel READ destinationModel CONSTANT)
+    Q_PROPERTY(MediaListModel *mediaModel READ mediaModel CONSTANT)
+    Q_PROPERTY(bool mediaScanning READ mediaScanning NOTIFY mediaScanningChanged)
     Q_PROPERTY(QString projectName READ projectName WRITE setProjectName NOTIFY projectNameChanged)
     Q_PROPERTY(QString shootDate READ shootDate WRITE setShootDate NOTIFY shootDateChanged)
     Q_PROPERTY(QString cardName READ cardName WRITE setCardName NOTIFY cardNameChanged)
@@ -43,12 +49,15 @@ class AppController final : public QObject {
 
 public:
     explicit AppController(SettingsStore *settings = nullptr, QObject *parent = nullptr);
+    ~AppController() override;
 
     QString appVersion() const;
 
     QString sourcePath() const;
     void setSourcePath(const QString &value);
     DestinationListModel *destinationModel() const;
+    MediaListModel *mediaModel() const;
+    bool mediaScanning() const;
     QString projectName() const;
     void setProjectName(const QString &value);
     QString shootDate() const;
@@ -88,6 +97,9 @@ public:
     bool pass() const;
 
     Q_INVOKABLE void chooseSourceFolder();
+    Q_INVOKABLE void loadSourceMedia();
+    Q_INVOKABLE void clearSourceMedia();
+    Q_INVOKABLE QString formatBreakdownJson() const;
     Q_INVOKABLE void addDestinationFolder();
     Q_INVOKABLE void addSourceFromPath(const QString &path);
     Q_INVOKABLE void addDestinationFromPath(const QString &path);
@@ -109,6 +121,7 @@ public:
 
 signals:
     void sourcePathChanged();
+    void mediaScanningChanged();
     void projectNameChanged();
     void shootDateChanged();
     void cardNameChanged();
@@ -138,6 +151,8 @@ public:
     };
 private:
     void appendLog(const QString &line, LogSeverity severity = LogSeverity::Info);
+    void startThumbnailGeneration();
+    void stopThumbnailGeneration();
     void setBusy(bool value);
     void setOverallProgress(double value);
     void setStatusText(const QString &value);
@@ -147,6 +162,11 @@ private:
 
     SettingsStore *m_settings = nullptr;
     DestinationListModel *m_destinationModel = nullptr;
+    MediaListModel *m_mediaModel = nullptr;
+    QString m_thumbCacheDir;
+    bool m_mediaScanning = false;
+    QPointer<ThumbnailWorker> m_thumbWorker;
+    QPointer<QThread> m_thumbThread;
     QString m_sourcePath;
     QString m_projectName;
     QString m_shootDate;
