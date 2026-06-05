@@ -22,6 +22,7 @@ class AppController final : public QObject {
     Q_PROPERTY(bool mediaScanning READ mediaScanning NOTIFY mediaScanningChanged)
     Q_PROPERTY(QString projectName READ projectName WRITE setProjectName NOTIFY projectNameChanged)
     Q_PROPERTY(QString shootDate READ shootDate WRITE setShootDate NOTIFY shootDateChanged)
+    Q_PROPERTY(bool shootDateValid READ shootDateValid NOTIFY shootDateChanged)
     Q_PROPERTY(QString cardName READ cardName WRITE setCardName NOTIFY cardNameChanged)
     Q_PROPERTY(QString cameraId READ cameraId WRITE setCameraId NOTIFY cameraIdChanged)
     Q_PROPERTY(QString ignorePatterns READ ignorePatterns WRITE setIgnorePatterns NOTIFY ignorePatternsChanged)
@@ -65,6 +66,7 @@ public:
     void setProjectName(const QString &value);
     QString shootDate() const;
     void setShootDate(const QString &value);
+    bool shootDateValid() const;
     QString cardName() const;
     void setCardName(const QString &value);
     QString cameraId() const;
@@ -111,6 +113,7 @@ public:
     Q_INVOKABLE void copyDestinationPath(int sourceIndex);
     Q_INVOKABLE void syncDestinationPaths();
     Q_INVOKABLE void removeDestination(int index);
+    Q_INVOKABLE void renameDestination(int index, const QString &label);
     Q_INVOKABLE void startOffload();
     Q_INVOKABLE void cancelOffload();
     Q_INVOKABLE void exportTxt();
@@ -150,6 +153,7 @@ signals:
     void summaryChanged();
     void exportSucceeded(const QString &path);
     void exportFailed(const QString &message);
+    void offloadFailed(const QString &message);
 
 public:
     enum class LogSeverity {

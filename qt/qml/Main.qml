@@ -122,6 +122,9 @@ ApplicationWindow {
         function onExportFailed(message) {
             toast.show(message, true)
         }
+        function onOffloadFailed(message) {
+            toast.show("Offload failed: " + message, true)
+        }
     }
 
     readonly property bool dark: themeController.dark
@@ -328,12 +331,19 @@ ApplicationWindow {
                                     ColumnLayout {
                                         Layout.fillWidth: true
                                         spacing: 2
-                                        Text {
-                                            text: model.label || "Destination"
+                                        TextInput {
+                                            Layout.fillWidth: true
+                                            text: model.label
                                             color: ink
                                             font.family: root.sans
                                             font.pixelSize: 12
                                             font.bold: true
+                                            enabled: !appController.busy
+                                            selectByMouse: true
+                                            clip: true
+                                            onEditingFinished: appController.renameDestination(index, text)
+                                            Accessible.role: Accessible.EditableText
+                                            Accessible.name: "Destination name, editable"
                                         }
                                         Text {
                                             text: model.path
@@ -388,6 +398,9 @@ ApplicationWindow {
                                         variant: "danger"
                                         enabled: !appController.busy
                                         onClicked: appController.removeDestination(index)
+                                        Accessible.name: "Remove destination"
+                                        ToolTip.visible: hovered && enabled
+                                        ToolTip.text: "Remove destination"
                                     }
                                 }
                             }
@@ -543,7 +556,15 @@ ApplicationWindow {
                                 placeholderText: "YYYY-MM-DD"
                                 enabled: !appController.busy
                                 maximumLength: 10
+                                color: appController.shootDateValid ? root.ink : root.bad
                                 onTextChanged: appController.shootDate = text
+                            }
+                            Text {
+                                visible: !appController.shootDateValid
+                                text: "Use the format YYYY-MM-DD"
+                                color: root.bad
+                                font.family: root.sans
+                                font.pixelSize: 10
                             }
                             RowLayout {
                                 Layout.fillWidth: true
@@ -979,6 +1000,7 @@ ApplicationWindow {
                             themeController.preference = map[index]
                         }
                         font.pixelSize: 10
+                        Accessible.name: "Appearance theme"
                     }
                     QuietButton {
                         text: "Copy Log"

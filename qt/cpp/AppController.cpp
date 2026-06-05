@@ -90,6 +90,12 @@ QString AppController::projectName() const { return m_projectName; }
 void AppController::setProjectName(const QString &value) { setIfChanged(m_projectName, value.trimmed(), [this] { emit projectNameChanged(); }); }
 QString AppController::shootDate() const { return m_shootDate; }
 void AppController::setShootDate(const QString &value) { setIfChanged(m_shootDate, value.trimmed(), [this] { emit shootDateChanged(); }); }
+bool AppController::shootDateValid() const
+{
+    if (m_shootDate.isEmpty()) return true; // optional field
+    static const QRegularExpression re(QStringLiteral(R"(^\d{4}-\d{2}-\d{2}$)"));
+    return re.match(m_shootDate).hasMatch();
+}
 QString AppController::cardName() const { return m_cardName; }
 void AppController::setCardName(const QString &value) { setIfChanged(m_cardName, value.trimmed(), [this] { emit cardNameChanged(); }); }
 QString AppController::cameraId() const { return m_cameraId; }
@@ -453,6 +459,17 @@ void AppController::removeDestination(int index)
     m_destinationModel->removeDestination(index);
 }
 
+void AppController::renameDestination(int index, const QString &label)
+{
+    const auto items = m_destinationModel->items();
+    if (index < 0 || index >= items.size()) return;
+    const QString trimmed = label.trimmed();
+    // Empty input falls back to the positional default so a card is never nameless.
+    items.at(index)->setLabel(trimmed.isEmpty()
+        ? QStringLiteral("Destination %1").arg(index + 1)
+        : trimmed);
+}
+
 void AppController::startOffload()
 {
     if (m_busy) return;
@@ -716,6 +733,7 @@ void AppController::startOffload()
         setStatusText(message);
         setPass(false);
         appendLog(QStringLiteral("Offload failed: %1").arg(message), LogSeverity::Error);
+        emit offloadFailed(message);
     });
     connect(worker, &DitOffloadWorker::cancelled, this, [this] {
         setBusy(false);
