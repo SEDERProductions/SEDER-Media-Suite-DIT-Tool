@@ -116,4 +116,49 @@ mod tests {
         let result = extract(Path::new("/nonexistent.mov"), &cache, "BLAKE3", "");
         assert!(result.is_err());
     }
+
+    #[test]
+    fn extract_produces_jpeg_when_ffmpeg_present() {
+        // Real ffmpeg path: skip cleanly on hosts without ffmpeg (e.g. CI),
+        // so this only adds coverage where the binary is actually available.
+        let Some(ffmpeg) = discover_ffmpeg() else {
+            return;
+        };
+        let dir = std::env::temp_dir().join("seder-thumb-extract-e2e");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let clip = dir.join("clip.mp4");
+
+        // Two-second synthetic clip so the 1s seek lands on a real frame.
+        let status = Command::new(&ffmpeg)
+            .args([
+                "-y",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=2:size=320x240:rate=10",
+                "-pix_fmt",
+                "yuv420p",
+            ])
+            .arg(&clip)
+            .status()
+            .unwrap();
+        assert!(status.success(), "failed to synthesize test clip");
+
+        let cache = dir.join("cache");
+        let out = extract(&clip, &cache, "PREVIEW", "deadbeefcafe").unwrap();
+        assert!(out.exists(), "thumbnail file should exist");
+        assert!(
+            std::fs::metadata(&out).unwrap().len() > 0,
+            "thumbnail should be non-empty"
+        );
+
+        // Idempotent: a second call returns the cached file without re-running.
+        let out2 = extract(&clip, &cache, "PREVIEW", "deadbeefcafe").unwrap();
+        assert_eq!(out, out2);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
