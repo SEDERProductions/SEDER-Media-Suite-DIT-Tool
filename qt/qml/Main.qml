@@ -115,6 +115,13 @@ ApplicationWindow {
                     root.contentTab = 0
             }
         }
+        function onExportSucceeded(path) {
+            const name = path.split('/').pop().split('\\').pop()
+            toast.show("Exported " + name, false)
+        }
+        function onExportFailed(message) {
+            toast.show(message, true)
+        }
     }
 
     readonly property bool dark: themeController.dark
@@ -916,6 +923,18 @@ ApplicationWindow {
                         font.pixelSize: 12
                         elide: Text.ElideMiddle
                     }
+                    Text {
+                        visible: appController.busy && appController.transferSpeed.length > 0
+                        text: appController.etaText.length > 0
+                              ? appController.transferSpeed + "  ·  ETA " + appController.etaText
+                              : appController.transferSpeed
+                        color: faint
+                        font.family: root.mono
+                        font.pixelSize: 11
+                        Accessible.name: appController.transferSpeed + " "
+                                         + (appController.etaText.length > 0
+                                            ? "estimated " + appController.etaText + " remaining" : "")
+                    }
                     StyledProgressBar {
                         Layout.preferredWidth: 180
                         from: 0
@@ -923,6 +942,33 @@ ApplicationWindow {
                         value: appController.overallProgress
                         indeterminate: appController.busy && appController.statusText === "Scanning source..." && appController.overallProgress <= 0
                         visible: appController.busy || appController.overallProgress > 0
+                    }
+                    Rectangle {
+                        Layout.preferredHeight: 22
+                        Layout.preferredWidth: ffmpegBadgeText.implicitWidth + 24
+                        radius: 11
+                        color: panelAlt
+                        border.color: appController.ffmpegAvailable ? green : warn
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: appController.ffmpegAvailable
+                                         ? "ffmpeg available; thumbnails and clip metadata enabled"
+                                         : "ffmpeg not found; thumbnails and clip metadata are disabled"
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 5
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 7; height: 7; radius: 3.5
+                                color: appController.ffmpegAvailable ? green : warn
+                            }
+                            Text {
+                                id: ffmpegBadgeText
+                                text: appController.ffmpegAvailable ? "ffmpeg ready" : "ffmpeg missing"
+                                color: appController.ffmpegAvailable ? green : warn
+                                font.family: root.mono
+                                font.pixelSize: 10
+                            }
+                        }
                     }
                     StyledComboBox {
                         Layout.preferredWidth: 70
@@ -946,6 +992,46 @@ ApplicationWindow {
                     }
                 }
             }
+        }
+    }
+
+    // Transient export confirmation / error toast.
+    Rectangle {
+        id: toast
+        property string message: ""
+        property bool isError: false
+        function show(msg, err) {
+            toast.message = msg
+            toast.isError = err
+            toast.opacity = 1
+            toastTimer.restart()
+        }
+        z: 1000
+        anchors.top: parent.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.topMargin: 16
+        height: 40
+        width: toastText.implicitWidth + 32
+        radius: 6
+        color: panel
+        border.color: isError ? bad : green
+        border.width: 2
+        opacity: 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: 180 } }
+        Text {
+            id: toastText
+            anchors.centerIn: parent
+            text: toast.message
+            color: toast.isError ? bad : green
+            font.family: root.sans
+            font.pixelSize: 12
+            font.bold: true
+        }
+        Timer {
+            id: toastTimer
+            interval: 3500
+            onTriggered: toast.opacity = 0
         }
     }
 }

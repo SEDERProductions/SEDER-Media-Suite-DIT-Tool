@@ -129,6 +129,8 @@ void AppController::setChecksumAlgorithm(const QString &value)
 }
 bool AppController::busy() const { return m_busy; }
 double AppController::overallProgress() const { return m_overallProgress; }
+QString AppController::transferSpeed() const { return m_transferSpeed; }
+QString AppController::etaText() const { return m_etaText; }
 QString AppController::statusText() const { return m_statusText; }
 QString AppController::currentFile() const { return m_currentFile; }
 QStringList AppController::logLines() const { return m_logLines; }
@@ -499,6 +501,7 @@ void AppController::startOffload()
 
     setBusy(true);
     setOverallProgress(0.0);
+    resetTransferRate();
     setStatusText(QStringLiteral("Starting offload..."));
     setCurrentFile(QString());
     setPass(false);
@@ -556,6 +559,7 @@ void AppController::startOffload()
             }
         } else if (update.overallBytesTotal > 0) {
             setOverallProgress(static_cast<double>(update.overallBytesCompleted) / static_cast<double>(update.overallBytesTotal));
+            updateTransferRate(update.overallBytesCompleted, update.overallBytesTotal);
         }
 
         // Log per-destination file completions during copy/verify phases
@@ -627,6 +631,7 @@ void AppController::startOffload()
     connect(worker, &DitOffloadWorker::finished, this, [this, request](const FinalReportData &report) {
         setBusy(false);
         setOverallProgress(1.0);
+        resetTransferRate();
         setPass(report.allPass);
         for (int i = 0; i < report.destinationStates.size() && i < m_destinationModel->count(); ++i) {
             auto *item = m_destinationModel->items().at(i);
@@ -707,6 +712,7 @@ void AppController::startOffload()
     connect(worker, &DitOffloadWorker::failed, this, [this](const QString &message) {
         setBusy(false);
         setOverallProgress(0.0);
+        resetTransferRate();
         setStatusText(message);
         setPass(false);
         appendLog(QStringLiteral("Offload failed: %1").arg(message), LogSeverity::Error);
@@ -714,6 +720,7 @@ void AppController::startOffload()
     connect(worker, &DitOffloadWorker::cancelled, this, [this] {
         setBusy(false);
         setOverallProgress(0.0);
+        resetTransferRate();
         setStatusText(QStringLiteral("Offload cancelled."));
         setPass(false);
         appendLog(QStringLiteral("Offload cancelled by user."), LogSeverity::Warn);
@@ -821,6 +828,72 @@ void AppController::setOverallProgress(double value)
     emit overallProgressChanged();
 }
 
+void AppController::updateTransferRate(quint64 bytesCompleted, quint64 bytesTotal)
+{
+    // Seed the timer on the first byte-bearing sample.
+    if (!m_rateTimer.isValid()) {
+        m_rateTimer.start();
+        m_lastBytes = bytesCompleted;
+        return;
+    }
+    const qint64 elapsedMs = m_rateTimer.elapsed();
+    if (elapsedMs < 300) return; // ~3 samples/sec keeps the number readable
+
+    const double dt = static_cast<double>(elapsedMs) / 1000.0;
+    const double inst = (bytesCompleted >= m_lastBytes)
+        ? static_cast<double>(bytesCompleted - m_lastBytes) / dt
+        : 0.0;
+    // Exponential moving average so the figure doesn't jitter chunk-to-chunk.
+    m_smoothedBytesPerSec = (m_smoothedBytesPerSec <= 0.0)
+        ? inst
+        : (0.6 * m_smoothedBytesPerSec + 0.4 * inst);
+    m_lastBytes = bytesCompleted;
+    m_rateTimer.restart();
+
+    QString speed;
+    QString eta;
+    if (m_smoothedBytesPerSec > 1.0) {
+        speed = formatBytes(static_cast<quint64>(m_smoothedBytesPerSec)) + QStringLiteral("/s");
+        if (bytesTotal > bytesCompleted) {
+            const double remaining =
+                static_cast<double>(bytesTotal - bytesCompleted) / m_smoothedBytesPerSec;
+            eta = formatDuration(static_cast<qint64>(remaining));
+        }
+    }
+    if (speed != m_transferSpeed || eta != m_etaText) {
+        m_transferSpeed = speed;
+        m_etaText = eta;
+        emit rateChanged();
+    }
+}
+
+void AppController::resetTransferRate()
+{
+    m_rateTimer.invalidate();
+    m_lastBytes = 0;
+    m_smoothedBytesPerSec = 0.0;
+    if (!m_transferSpeed.isEmpty() || !m_etaText.isEmpty()) {
+        m_transferSpeed.clear();
+        m_etaText.clear();
+        emit rateChanged();
+    }
+}
+
+QString AppController::formatDuration(qint64 seconds)
+{
+    if (seconds < 0) seconds = 0;
+    const qint64 h = seconds / 3600;
+    const qint64 m = (seconds % 3600) / 60;
+    const qint64 s = seconds % 60;
+    if (h > 0) {
+        return QStringLiteral("%1:%2:%3")
+            .arg(h)
+            .arg(m, 2, 10, QLatin1Char('0'))
+            .arg(s, 2, 10, QLatin1Char('0'));
+    }
+    return QStringLiteral("%1:%2").arg(m, 2, 10, QLatin1Char('0')).arg(s, 2, 10, QLatin1Char('0'));
+}
+
 void AppController::setStatusText(const QString &value)
 {
     if (m_statusText == value) return;
@@ -858,16 +931,19 @@ void AppController::writeExport(const QString &caption, const QString &defaultNa
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         setStatusText(QStringLiteral("Unable to write %1").arg(path));
         appendLog(QStringLiteral("Unable to write %1").arg(path), LogSeverity::Error);
+        emit exportFailed(tr("Unable to write %1").arg(path));
         return;
     }
     file.write(contents.toUtf8());
     if (!file.commit()) {
         setStatusText(QStringLiteral("Unable to save %1").arg(path));
         appendLog(QStringLiteral("Unable to save %1").arg(path), LogSeverity::Error);
+        emit exportFailed(tr("Unable to save %1").arg(path));
         return;
     }
     setStatusText(QStringLiteral("Export complete."));
     appendLog(QStringLiteral("Exported %1").arg(path));
+    emit exportSucceeded(path);
 }
 void AppController::clearLog()
 {

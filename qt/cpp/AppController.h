@@ -6,6 +6,7 @@
 #include "ThemeController.h"
 #include "ThumbnailWorker.h"
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QPointer>
 #include <QStringList>
@@ -35,6 +36,8 @@ class AppController final : public QObject {
     Q_PROPERTY(bool canExportMetadataJson READ canExportMetadataJson NOTIFY canExportMetadataJsonChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(double overallProgress READ overallProgress NOTIFY overallProgressChanged)
+    Q_PROPERTY(QString transferSpeed READ transferSpeed NOTIFY rateChanged)
+    Q_PROPERTY(QString etaText READ etaText NOTIFY rateChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
     Q_PROPERTY(QString currentFile READ currentFile NOTIFY currentFileChanged)
     Q_PROPERTY(QStringList logLines READ logLines NOTIFY logLinesChanged)
@@ -85,6 +88,8 @@ public:
     bool canExportMetadataJson() const;
     bool busy() const;
     double overallProgress() const;
+    QString transferSpeed() const;
+    QString etaText() const;
     QString statusText() const;
     QString currentFile() const;
     QStringList logLines() const;
@@ -136,12 +141,15 @@ signals:
     void canExportMetadataJsonChanged();
     void busyChanged();
     void overallProgressChanged();
+    void rateChanged();
     void statusTextChanged();
     void currentFileChanged();
     void logLinesChanged();
     void exportStateChanged();
     void canExportMhlChanged();
     void summaryChanged();
+    void exportSucceeded(const QString &path);
+    void exportFailed(const QString &message);
 
 public:
     enum class LogSeverity {
@@ -153,6 +161,9 @@ private:
     void appendLog(const QString &line, LogSeverity severity = LogSeverity::Info);
     void startThumbnailGeneration();
     void stopThumbnailGeneration();
+    void updateTransferRate(quint64 bytesCompleted, quint64 bytesTotal);
+    void resetTransferRate();
+    static QString formatDuration(qint64 seconds);
     void setBusy(bool value);
     void setOverallProgress(double value);
     void setStatusText(const QString &value);
@@ -183,6 +194,11 @@ private:
     QString m_aleExport;
     bool m_busy = false;
     double m_overallProgress = 0.0;
+    QElapsedTimer m_rateTimer;
+    quint64 m_lastBytes = 0;
+    double m_smoothedBytesPerSec = 0.0;
+    QString m_transferSpeed;
+    QString m_etaText;
     QString m_statusText = QStringLiteral("Ready for offload.");
     QString m_currentFile;
     QStringList m_logLines;
