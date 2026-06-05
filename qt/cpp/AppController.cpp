@@ -236,6 +236,54 @@ QString AppController::formatBreakdownJson() const
     return result;
 }
 
+bool AppController::comparing() const { return m_comparing; }
+QString AppController::compareResultJson() const { return m_compareJson; }
+
+void AppController::runCompare(const QString &destPath, const QString &mode)
+{
+    if (m_comparing) return;
+    if (m_sourcePath.isEmpty() || destPath.isEmpty()) {
+        appendLog(QStringLiteral("Compare needs both a source and a destination folder."),
+                  LogSeverity::Warn);
+        return;
+    }
+    m_comparing = true;
+    m_compareJson.clear();
+    emit compareStateChanged();
+
+    // Snapshot inputs by value for the worker thread (a checksum compare reads
+    // both trees, so keep it off the UI thread).
+    const QString source = m_sourcePath;
+    const QString dest = destPath;
+    const QString modeStr = mode;
+    const QString algo = m_checksumAlgorithm;
+    const QString ignore = m_ignorePatterns;
+    const bool ignoreHidden = m_ignoreHiddenSystem;
+
+    auto *watcher = new QFutureWatcher<QString>(this);
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher]() {
+        m_compareJson = watcher->result();
+        watcher->deleteLater();
+        m_comparing = false;
+        emit compareStateChanged();
+    });
+    watcher->setFuture(QtConcurrent::run(
+        [source, dest, modeStr, algo, ignore, ignoreHidden]() -> QString {
+            const QByteArray s = source.toUtf8();
+            const QByteArray d = dest.toUtf8();
+            const QByteArray m = modeStr.toUtf8();
+            const QByteArray al = algo.toUtf8();
+            const QByteArray ig = ignore.toUtf8();
+            char *json = seder_compare_folders(
+                s.constData(), d.constData(), m.constData(),
+                al.constData(), ig.constData(), ignoreHidden ? 1 : 0);
+            if (!json) return QString();
+            const QString result = QString::fromUtf8(json);
+            seder_string_free(json);
+            return result;
+        }));
+}
+
 void AppController::startThumbnailGeneration()
 {
     if (!ffmpegAvailable()) {

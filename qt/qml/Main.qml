@@ -72,6 +72,11 @@ ApplicationWindow {
             }
             Platform.MenuSeparator {}
             Platform.MenuItem {
+                text: "Compare / Verify Folders…"
+                onTriggered: compareDialog.open()
+            }
+            Platform.MenuSeparator {}
+            Platform.MenuItem {
                 text: "Preferences…"
                 shortcut: "Ctrl+,"
                 onTriggered: preferencesDialog.open()
@@ -96,6 +101,7 @@ ApplicationWindow {
 
     AboutDialog { id: aboutDialog; anchors.centerIn: parent }
     PreferencesDialog { id: preferencesDialog; anchors.centerIn: parent }
+    CompareDialog { id: compareDialog; anchors.centerIn: parent }
 
     Connections {
         target: appController
@@ -471,6 +477,14 @@ ApplicationWindow {
                         onClicked: appController.syncDestinationPaths()
                         ToolTip.visible: hovered
                         ToolTip.text: "Replace last path component of all destinations with source folder name"
+                    }
+                    QuietButton {
+                        Layout.fillWidth: true
+                        text: "Compare / Verify Folders…"
+                        enabled: !appController.busy
+                        onClicked: compareDialog.open()
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Compare the source against another folder by path/size, modified time, or checksum"
                     }
 
                     QuietButton {

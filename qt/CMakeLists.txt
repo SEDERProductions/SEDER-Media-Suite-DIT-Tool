@@ -31,6 +31,7 @@ set(RUST_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/ffi.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/mod.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/checkpoint.rs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/compare.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/engine.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/ffprobe.rs"
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/offload/hash.rs"
@@ -170,6 +171,7 @@ qt_add_qml_module(seder-media-suite-dit-qt
         qml/MediaGrid.qml
         qml/AboutDialog.qml
         qml/PreferencesDialog.qml
+        qml/CompareDialog.qml
 )
 
 target_include_directories(seder-media-suite-dit-qt PRIVATE cpp)

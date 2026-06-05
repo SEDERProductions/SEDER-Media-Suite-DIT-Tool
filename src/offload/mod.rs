@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 pub mod checkpoint;
+pub mod compare;
 pub mod engine;
 pub mod ffprobe;
 pub mod hash;

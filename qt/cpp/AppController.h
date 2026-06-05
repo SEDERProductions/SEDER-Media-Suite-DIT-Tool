@@ -20,6 +20,8 @@ class AppController final : public QObject {
     Q_PROPERTY(DestinationListModel *destinationModel READ destinationModel CONSTANT)
     Q_PROPERTY(MediaListModel *mediaModel READ mediaModel CONSTANT)
     Q_PROPERTY(bool mediaScanning READ mediaScanning NOTIFY mediaScanningChanged)
+    Q_PROPERTY(bool comparing READ comparing NOTIFY compareStateChanged)
+    Q_PROPERTY(QString compareResultJson READ compareResultJson NOTIFY compareStateChanged)
     Q_PROPERTY(QString projectName READ projectName WRITE setProjectName NOTIFY projectNameChanged)
     Q_PROPERTY(QString shootDate READ shootDate WRITE setShootDate NOTIFY shootDateChanged)
     Q_PROPERTY(bool shootDateValid READ shootDateValid NOTIFY shootDateChanged)
@@ -62,6 +64,8 @@ public:
     DestinationListModel *destinationModel() const;
     MediaListModel *mediaModel() const;
     bool mediaScanning() const;
+    bool comparing() const;
+    QString compareResultJson() const;
     QString projectName() const;
     void setProjectName(const QString &value);
     QString shootDate() const;
@@ -107,6 +111,7 @@ public:
     Q_INVOKABLE void loadSourceMedia();
     Q_INVOKABLE void clearSourceMedia();
     Q_INVOKABLE QString formatBreakdownJson() const;
+    Q_INVOKABLE void runCompare(const QString &destPath, const QString &mode);
     Q_INVOKABLE void addDestinationFolder();
     Q_INVOKABLE void addSourceFromPath(const QString &path);
     Q_INVOKABLE void addDestinationFromPath(const QString &path);
@@ -130,6 +135,7 @@ public:
 signals:
     void sourcePathChanged();
     void mediaScanningChanged();
+    void compareStateChanged();
     void projectNameChanged();
     void shootDateChanged();
     void cardNameChanged();
@@ -180,6 +186,8 @@ private:
     MediaListModel *m_mediaModel = nullptr;
     QString m_thumbCacheDir;
     bool m_mediaScanning = false;
+    bool m_comparing = false;
+    QString m_compareJson;
     QPointer<ThumbnailWorker> m_thumbWorker;
     QPointer<QThread> m_thumbThread;
     QString m_sourcePath;
