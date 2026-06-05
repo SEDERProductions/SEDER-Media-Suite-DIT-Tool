@@ -41,6 +41,41 @@ cmake @ConfigureArgs
 cmake --build $BuildDir --config Release
 cmake --install $BuildDir --config Release
 
+# Bundle ffmpeg/ffprobe next to the app exe so thumbnails + clip metadata work
+# out of the box. The Rust core's bundle-aware discovery finds binaries beside
+# the executable, and the signtool loop below signs them with the rest.
+# Prefer a vendored $env:SEDER_FFMPEG_DIR (reproducible); otherwise download a
+# GPL static build (overridable via $env:SEDER_FFMPEG_WINDOWS_URL). Fail-soft
+# unless $env:SEDER_REQUIRE_FFMPEG -eq "1".
+$RequireFfmpeg = ($env:SEDER_REQUIRE_FFMPEG -eq "1")
+try {
+    $FfmpegSrc = $env:SEDER_FFMPEG_DIR
+    if ($FfmpegSrc -and (Test-Path (Join-Path $FfmpegSrc "ffmpeg.exe"))) {
+        Copy-Item (Join-Path $FfmpegSrc "ffmpeg.exe") (Join-Path $InstallDir "ffmpeg.exe") -Force
+        Copy-Item (Join-Path $FfmpegSrc "ffprobe.exe") (Join-Path $InstallDir "ffprobe.exe") -Force
+        Write-Host "Bundled ffmpeg/ffprobe from SEDER_FFMPEG_DIR"
+    } else {
+        $Url = if ($env:SEDER_FFMPEG_WINDOWS_URL) { $env:SEDER_FFMPEG_WINDOWS_URL } else { "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.zip" }
+        $Zip = Join-Path $env:TEMP "seder-ffmpeg.zip"
+        $Extract = Join-Path $env:TEMP "seder-ffmpeg-extract"
+        if (Test-Path $Extract) { Remove-Item -Recurse -Force $Extract }
+        Invoke-WebRequest -Uri $Url -OutFile $Zip -UseBasicParsing
+        Expand-Archive -Path $Zip -DestinationPath $Extract -Force
+        $ff = Get-ChildItem -Path $Extract -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+        $fp = Get-ChildItem -Path $Extract -Recurse -Filter ffprobe.exe | Select-Object -First 1
+        if ($ff -and $fp) {
+            Copy-Item $ff.FullName (Join-Path $InstallDir "ffmpeg.exe") -Force
+            Copy-Item $fp.FullName (Join-Path $InstallDir "ffprobe.exe") -Force
+            Write-Host "Bundled ffmpeg/ffprobe into $InstallDir"
+        } else {
+            throw "ffmpeg.exe/ffprobe.exe not found in downloaded archive"
+        }
+    }
+} catch {
+    if ($RequireFfmpeg) { throw }
+    Write-Warning "Could not bundle ffmpeg ($_); continuing. The app still works if the host has ffmpeg on PATH."
+}
+
 # Ad-hoc self-signed Authenticode signature for SEDER Productions identity.
 # Does NOT clear SmartScreen — users still see "More info -> Run anyway" the
 # first time. The cert is regenerated each run; for a stable cert across

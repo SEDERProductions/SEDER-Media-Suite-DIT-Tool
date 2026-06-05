@@ -48,6 +48,12 @@ if [[ -z "$APP_BUNDLE" ]]; then
   exit 1
 fi
 
+# Bundle ffmpeg/ffprobe inside the app so thumbnails + clip metadata work out
+# of the box. Placed in Contents/MacOS (next to the executable) so the Rust
+# core's bundle-aware discovery finds them; the codesign --deep below signs
+# them as part of the bundle.
+bash "$ROOT_DIR/scripts/fetch-ffmpeg.sh" "$PLATFORM" "$APP_BUNDLE/Contents/MacOS"
+
 codesign --force --deep --options runtime \
   --identifier com.sederproductions.media-suite.dit-qt \
   --sign - \

@@ -28,6 +28,10 @@ cmake -S "$ROOT_DIR/qt" -B "$BUILD_DIR" -G "$GENERATOR" \
 cmake --build "$BUILD_DIR" --config Release
 cmake --install "$BUILD_DIR" --config Release
 
+# Bundle ffmpeg/ffprobe next to the app binary so the AppImage / tarball ships
+# them and the Rust core's bundle-aware discovery picks them up at runtime.
+bash "$ROOT_DIR/scripts/fetch-ffmpeg.sh" linux-x64 "$APPDIR/usr/bin"
+
 cp "$ROOT_DIR/assets/icon.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/seder-dit-tool.svg"
 cat > "$APPDIR/usr/share/applications/seder-dit-tool.desktop" <<'DESKTOP'
 [Desktop Entry]
