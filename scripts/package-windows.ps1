@@ -41,6 +41,36 @@ cmake @ConfigureArgs
 cmake --build $BuildDir --config Release
 cmake --install $BuildDir --config Release
 
+# Bundle ffmpeg/ffprobe for out-of-the-box thumbnail support.
+$FfmpegDir = if ($env:SEDER_FFMPEG_DIR) { $env:SEDER_FFMPEG_DIR } else { $null }
+if ($FfmpegDir -and (Test-Path $FfmpegDir)) {
+    Write-Host "[fetch-ffmpeg] Copying from SEDER_FFMPEG_DIR=$FfmpegDir"
+    foreach ($bin in @("ffmpeg.exe", "ffprobe.exe")) {
+        $src = Join-Path $FfmpegDir $bin
+        if (Test-Path $src) {
+            Copy-Item $src (Join-Path $InstallDir $bin)
+        }
+    }
+} else {
+    Write-Host "[fetch-ffmpeg] Downloading Windows ffmpeg/ffprobe (GPL static)..."
+    $ffUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+    $tmp = New-TemporaryFile | ForEach-Object { $_.DirectoryName + "\" + [System.IO.Path]::GetRandomFileName() }
+    New-Item -ItemType Directory $tmp | Out-Null
+    try {
+        $zipPath = "$tmp\ffmpeg.zip"
+        Invoke-WebRequest -Uri $ffUrl -OutFile $zipPath -ErrorAction SilentlyContinue
+        Expand-Archive -Path $zipPath -DestinationPath $tmp -ErrorAction SilentlyContinue
+        foreach ($bin in @("ffmpeg.exe", "ffprobe.exe")) {
+            $found = Get-ChildItem $tmp -Recurse -Filter $bin -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { Copy-Item $found.FullName (Join-Path $InstallDir $bin) }
+        }
+    } catch {
+        Write-Warning "[fetch-ffmpeg] Could not download ffmpeg: $_"
+    } finally {
+        Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+    }
+}
+
 # Ad-hoc self-signed Authenticode signature for SEDER Productions identity.
 # Does NOT clear SmartScreen — users still see "More info -> Run anyway" the
 # first time. The cert is regenerated each run; for a stable cert across

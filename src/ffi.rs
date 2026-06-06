@@ -1,6 +1,8 @@
 #![allow(clippy::missing_safety_doc)]
 
-use crate::offload::engine::{offload_files, scan_source};
+use crate::offload::compare::{compare, CompareMode};
+use crate::offload::engine::{offload_files, scan_source, walk_media};
+use crate::offload::media::FormatBreakdown;
 use crate::offload::volume::are_same_volume;
 use crate::offload::*;
 use crate::report;
@@ -802,6 +804,118 @@ pub unsafe extern "C" fn seder_extract_thumbnail(
     result.unwrap_or(std::ptr::null_mut())
 }
 
+/// Walk `source` and return a JSON array describing each media file WITHOUT
+/// hashing it: `[{"rel_path","abs_path","size","kind"}]`. Honours the same
+/// ignore rules as the offload — `ignore_patterns` is a comma / newline
+/// separated list and `ignore_hidden_system` toggles the hidden/system
+/// filter. The returned string is heap-allocated; free with
+/// `seder_string_free`. Returns NULL on a null or unreadable source; an
+/// empty but valid source returns "[]". This powers the pre-offload media
+/// browser, so it must stay cheap (no per-file reads/hashing).
+#[no_mangle]
+pub unsafe extern "C" fn seder_scan_media_list(
+    source_path: *const c_char,
+    ignore_patterns: *const c_char,
+    ignore_hidden_system: u8,
+) -> *mut c_char {
+    let result = catch_unwind(|| {
+        if source_path.is_null() {
+            return std::ptr::null_mut::<c_char>();
+        }
+        let source = unsafe { cstr_to_string(source_path) };
+        let patterns: Vec<String> = unsafe { cstr_to_string(ignore_patterns) }
+            .split([',', '\n', '\r'])
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let options = OffloadOptions {
+            ignore_hidden_system: ignore_hidden_system != 0,
+            ignore_patterns: patterns,
+            ..OffloadOptions::default()
+        };
+
+        let mut entries: Vec<serde_json::Value> = Vec::new();
+        if walk_media(std::path::Path::new(&source), &options, |item| {
+            entries.push(serde_json::json!({
+                "rel_path": item.relative_path,
+                "abs_path": item.absolute_path,
+                "size": item.size,
+                "kind": item.kind.as_str(),
+            }));
+        })
+        .is_err()
+        {
+            return std::ptr::null_mut();
+        }
+
+        match serde_json::to_string(&entries) {
+            Ok(s) => CString::new(s)
+                .map(|c| c.into_raw())
+                .unwrap_or(std::ptr::null_mut()),
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+/// Aggregate the same media walk into a per-format breakdown:
+/// `[{"kind","count","bytes"}]`, sorted descending by total bytes. Heap
+/// allocated; free with `seder_string_free`. NULL on a null/unreadable
+/// source. Drives the format-breakdown widget without a second walk in C++.
+#[no_mangle]
+pub unsafe extern "C" fn seder_format_breakdown(
+    source_path: *const c_char,
+    ignore_patterns: *const c_char,
+    ignore_hidden_system: u8,
+) -> *mut c_char {
+    let result = catch_unwind(|| {
+        if source_path.is_null() {
+            return std::ptr::null_mut::<c_char>();
+        }
+        let source = unsafe { cstr_to_string(source_path) };
+        let patterns: Vec<String> = unsafe { cstr_to_string(ignore_patterns) }
+            .split([',', '\n', '\r'])
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let options = OffloadOptions {
+            ignore_hidden_system: ignore_hidden_system != 0,
+            ignore_patterns: patterns,
+            ..OffloadOptions::default()
+        };
+
+        let mut pairs: Vec<(String, u64)> = Vec::new();
+        if walk_media(std::path::Path::new(&source), &options, |item| {
+            pairs.push((item.relative_path, item.size));
+        })
+        .is_err()
+        {
+            return std::ptr::null_mut();
+        }
+
+        let breakdown = FormatBreakdown::from_files(pairs);
+        let arr: Vec<serde_json::Value> = breakdown
+            .entries
+            .iter()
+            .map(|(kind, count, bytes)| {
+                serde_json::json!({
+                    "kind": kind.as_str(),
+                    "count": *count,
+                    "bytes": *bytes,
+                })
+            })
+            .collect();
+
+        match serde_json::to_string(&arr) {
+            Ok(s) => CString::new(s)
+                .map(|c| c.into_raw())
+                .unwrap_or(std::ptr::null_mut()),
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+    result.unwrap_or(std::ptr::null_mut())
+}
+
 /// Expand a destination template (e.g. "{project}/{date}/{card}") given the
 /// project metadata. The returned C string is heap-allocated and must be
 /// freed with `seder_string_free`. Returns NULL on null inputs.
@@ -849,6 +963,67 @@ unsafe fn nullable_cstr_to_option(ptr: *const c_char) -> Option<String> {
         return None;
     }
     Some(CStr::from_ptr(ptr).to_string_lossy().into_owned())
+}
+
+/// Compare `source_path` against `dest_path` using `mode` ("path_size",
+/// "mtime", or "checksum") and returns a JSON report. `checksum_algorithm`
+/// may be "BLAKE3" or "XXH3" (defaults to BLAKE3). `ignore_patterns` and
+/// `ignore_hidden_system` apply to the source walk only. The returned string
+/// is heap-allocated; free with `seder_string_free`. Returns NULL on error.
+#[no_mangle]
+pub unsafe extern "C" fn seder_compare_folders(
+    source_path: *const c_char,
+    dest_path: *const c_char,
+    mode: *const c_char,
+    checksum_algorithm: *const c_char,
+    ignore_patterns: *const c_char,
+    ignore_hidden_system: u8,
+) -> *mut c_char {
+    let result = catch_unwind(|| {
+        if source_path.is_null() || dest_path.is_null() {
+            return std::ptr::null_mut::<c_char>();
+        }
+        let source = unsafe { cstr_to_string(source_path) };
+        let dest = unsafe { cstr_to_string(dest_path) };
+        let mode_str = if mode.is_null() {
+            "path_size".to_string()
+        } else {
+            unsafe { cstr_to_string(mode) }
+        };
+        let algo_str = if checksum_algorithm.is_null() {
+            "BLAKE3".to_string()
+        } else {
+            unsafe { cstr_to_string(checksum_algorithm) }
+        };
+        let algorithm = ChecksumAlgo::parse(&algo_str).unwrap_or(ChecksumAlgo::Blake3);
+        let patterns: Vec<String> = unsafe { cstr_to_string(ignore_patterns) }
+            .split([',', '\n', '\r'])
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let options = OffloadOptions {
+            ignore_hidden_system: ignore_hidden_system != 0,
+            ignore_patterns: patterns,
+            ..OffloadOptions::default()
+        };
+        let compare_mode = CompareMode::parse(&mode_str);
+        match compare(
+            std::path::Path::new(&source),
+            std::path::Path::new(&dest),
+            compare_mode,
+            &options,
+            algorithm,
+        ) {
+            Ok(report) => match serde_json::to_string(&report) {
+                Ok(s) => CString::new(s)
+                    .map(|c| c.into_raw())
+                    .unwrap_or(std::ptr::null_mut()),
+                Err(_) => std::ptr::null_mut(),
+            },
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+    result.unwrap_or(std::ptr::null_mut())
 }
 
 fn chrono_nowish() -> String {
@@ -940,6 +1115,132 @@ mod tests {
                 0
             );
         }
+    }
+
+    #[test]
+    fn scan_media_list_lists_visible_media_with_kind() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("A001.mxf"), b"video").unwrap();
+        std::fs::create_dir(temp.path().join(".hidden")).unwrap();
+        std::fs::write(temp.path().join(".hidden").join("h.mxf"), b"x").unwrap();
+
+        let src = cs(temp.path().to_str().unwrap());
+        let ignore = cs("");
+        let json = unsafe {
+            let ptr = seder_scan_media_list(src.as_ptr(), ignore.as_ptr(), 1);
+            assert!(!ptr.is_null());
+            let s = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+            seder_string_free(ptr);
+            s
+        };
+        assert!(json.contains("A001.mxf"));
+        assert!(json.contains("\"MXF\""));
+        assert!(!json.contains("h.mxf"), "hidden files must be excluded");
+    }
+
+    #[test]
+    fn scan_media_list_glob_ignore_and_empty_source() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("keep.mov"), b"a").unwrap();
+        std::fs::write(temp.path().join("skip.wav"), b"b").unwrap();
+        let ignore = cs("*.wav");
+        let src = cs(temp.path().to_str().unwrap());
+        let json = unsafe {
+            let ptr = seder_scan_media_list(src.as_ptr(), ignore.as_ptr(), 1);
+            let s = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+            seder_string_free(ptr);
+            s
+        };
+        assert!(json.contains("keep.mov"));
+        assert!(!json.contains("skip.wav"));
+
+        let empty = tempfile::tempdir().unwrap();
+        let esrc = cs(empty.path().to_str().unwrap());
+        let ejson = unsafe {
+            let ptr = seder_scan_media_list(esrc.as_ptr(), ignore.as_ptr(), 1);
+            let s = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+            seder_string_free(ptr);
+            s
+        };
+        assert_eq!(ejson, "[]");
+    }
+
+    #[test]
+    fn scan_media_list_null_source_returns_null() {
+        let ignore = cs("");
+        let ptr = unsafe { seder_scan_media_list(std::ptr::null(), ignore.as_ptr(), 1) };
+        assert!(ptr.is_null());
+    }
+
+    #[test]
+    fn format_breakdown_groups_and_sorts_by_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("a.mov"), b"aaaaa").unwrap();
+        std::fs::write(temp.path().join("b.mov"), b"bbb").unwrap();
+        std::fs::write(temp.path().join("c.wav"), b"c").unwrap();
+        let src = cs(temp.path().to_str().unwrap());
+        let ignore = cs("");
+        let json = unsafe {
+            let ptr = seder_format_breakdown(src.as_ptr(), ignore.as_ptr(), 1);
+            assert!(!ptr.is_null());
+            let s = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+            seder_string_free(ptr);
+            s
+        };
+        assert!(json.contains("\"MOV\""));
+        assert!(json.contains("\"Audio\""));
+        let mov_idx = json.find("MOV").unwrap();
+        let audio_idx = json.find("Audio").unwrap();
+        assert!(mov_idx < audio_idx, "MOV has more bytes, should sort first");
+    }
+
+    #[test]
+    fn compare_folders_reports_summary_and_statuses() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        std::fs::write(a.path().join("same.mov"), b"hello").unwrap();
+        std::fs::write(b.path().join("same.mov"), b"hello").unwrap();
+        std::fs::write(a.path().join("only_a.mxf"), b"x").unwrap();
+
+        let src = cs(a.path().to_str().unwrap());
+        let dst = cs(b.path().to_str().unwrap());
+        let mode = cs("PATHSIZE");
+        let algo = cs("BLAKE3");
+        let ignore = cs("");
+        let json = unsafe {
+            let ptr = seder_compare_folders(
+                src.as_ptr(),
+                dst.as_ptr(),
+                mode.as_ptr(),
+                algo.as_ptr(),
+                ignore.as_ptr(),
+                1,
+            );
+            assert!(!ptr.is_null());
+            let s = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+            seder_string_free(ptr);
+            s
+        };
+        assert!(json.contains("\"matched\":1"));
+        assert!(json.contains("\"missing_in_dest\":1"));
+        assert!(json.contains("missing_in_dest"));
+    }
+
+    #[test]
+    fn compare_folders_null_inputs_return_null() {
+        let dst = cs("/tmp");
+        let mode = cs("PATHSIZE");
+        let ptr = unsafe {
+            seder_compare_folders(
+                std::ptr::null(),
+                dst.as_ptr(),
+                mode.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                1,
+            )
+        };
+        assert!(ptr.is_null());
     }
 
     #[test]

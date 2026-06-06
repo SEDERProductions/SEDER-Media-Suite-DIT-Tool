@@ -72,6 +72,13 @@ ApplicationWindow {
             }
             Platform.MenuSeparator {}
             Platform.MenuItem {
+                text: "Compare / Verify Folders…"
+                shortcut: "Ctrl+Shift+C"
+                enabled: !appController.busy && appController.sourcePath.length > 0
+                onTriggered: compareDialog.open()
+            }
+            Platform.MenuSeparator {}
+            Platform.MenuItem {
                 text: "Preferences…"
                 shortcut: "Ctrl+,"
                 onTriggered: preferencesDialog.open()
@@ -96,6 +103,86 @@ ApplicationWindow {
 
     AboutDialog { id: aboutDialog; anchors.centerIn: parent }
     PreferencesDialog { id: preferencesDialog; anchors.centerIn: parent }
+    CompareDialog { id: compareDialog; anchors.centerIn: parent }
+
+    // Toast banner for export success/failure and offload errors
+    Rectangle {
+        id: toast
+        z: 1000
+        width: Math.min(toastText.implicitWidth + 32, parent.width - 64)
+        height: 40
+        radius: 6
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 20
+        opacity: 0
+        visible: opacity > 0
+        property color toastBg: root.panel
+        property color toastBorder: root.line
+        color: toastBg
+        border.color: toastBorder
+        border.width: 1
+
+        Text {
+            id: toastText
+            anchors.centerIn: parent
+            font.family: root.sans
+            font.pixelSize: 12
+            color: root.ink
+        }
+
+        NumberAnimation on opacity {
+            id: toastFadeOut
+            to: 0
+            duration: 400
+            easing.type: Easing.InQuad
+        }
+        Timer {
+            id: toastTimer
+            interval: 3200
+            onTriggered: toastFadeOut.start()
+        }
+
+        function show(msg, isError) {
+            toastFadeOut.stop()
+            toastText.text = msg
+            toast.toastBg = isError ? root.bad : root.panelAlt
+            toast.toastBorder = isError ? root.bad : root.green
+            toastText.color = "#ffffff"
+            opacity = 1
+            toastTimer.restart()
+        }
+    }
+
+    Connections {
+        target: appController
+        // Jump to the Activity Log when an offload starts so progress is visible.
+        function onBusyChanged() {
+            if (appController.busy) root.contentTab = 1
+        }
+        // Refresh the format breakdown once a source scan finishes.
+        function onMediaScanningChanged() {
+            if (!appController.mediaScanning) {
+                try {
+                    root.formatBreakdown = JSON.parse(appController.formatBreakdownJson())
+                } catch (e) {
+                    root.formatBreakdown = []
+                }
+                if (!appController.busy && appController.mediaModel.count > 0)
+                    root.contentTab = 0
+            }
+        }
+        function onExportSucceeded(path) {
+            const name = path.split("/").pop().split("\\").pop()
+            toast.show("Exported: " + name, false)
+        }
+        function onExportFailed(message) {
+            toast.show("Export failed: " + message, true)
+        }
+        function onOffloadFailed(message) {
+            toast.show("Offload error: " + message, true)
+        }
+    }
 
     readonly property bool dark: themeController.dark
     readonly property color bg: dark ? "#12110f" : "#ece6d9"
@@ -114,6 +201,10 @@ ApplicationWindow {
 
     property bool metadataExpanded: false
     property bool logAutoScrollEnabled: true
+    // Right-hand content: 0 = Browse (media grid), 1 = Activity Log.
+    property int contentTab: 0
+    // Per-format breakdown for the source, refreshed when a scan completes.
+    property var formatBreakdown: []
     readonly property real scaleFactor: Math.max(1.0, Math.min(Screen.devicePixelRatio, 2.0))
     readonly property int spaceSmall: Math.round(6 * scaleFactor)
     readonly property int spaceMedium: Math.round(10 * scaleFactor)
@@ -297,12 +388,26 @@ ApplicationWindow {
                                     ColumnLayout {
                                         Layout.fillWidth: true
                                         spacing: 2
-                                        Text {
-                                            text: model.label || "Destination"
+                                        TextInput {
+                                            id: destLabelInput
+                                            Layout.fillWidth: true
+                                            text: model.label || ""
                                             color: ink
                                             font.family: root.sans
                                             font.pixelSize: 12
                                             font.bold: true
+                                            selectByMouse: true
+                                            readOnly: appController.busy
+                                            onEditingFinished: appController.renameDestination(index, text)
+                                            Accessible.name: "Destination label, " + (text || qsTr("Destination %1").arg(index + 1))
+                                            Accessible.description: "Click to rename this destination"
+                                            Text {
+                                                anchors.fill: parent
+                                                text: qsTr("Destination %1").arg(index + 1)
+                                                color: faint
+                                                font: parent.font
+                                                visible: parent.text.length === 0 && !parent.activeFocus
+                                            }
                                         }
                                         Text {
                                             text: model.path
@@ -445,6 +550,15 @@ ApplicationWindow {
                         visible: appController.busy
                         onClicked: appController.cancelOffload()
                     }
+                    QuietButton {
+                        Layout.fillWidth: true
+                        text: "Compare / Verify…"
+                        enabled: !appController.busy && appController.sourcePath.length > 0
+                        Accessible.name: "Open folder comparison dialog"
+                        onClicked: compareDialog.open()
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Compare source against a destination to find differences"
+                    }
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: line }
 
@@ -505,7 +619,19 @@ ApplicationWindow {
                                 maximumLength: 256
                                 onTextChanged: appController.projectName = text
                             }
-                            FieldLabel { text: "Shoot date" }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                FieldLabel { text: "Shoot date" }
+                                Text {
+                                    visible: appController.shootDate.length > 0 && !appController.shootDateValid
+                                    text: "Invalid date"
+                                    color: bad
+                                    font.family: root.sans
+                                    font.pixelSize: 10
+                                    Accessible.name: "Shoot date format is invalid, use YYYY-MM-DD"
+                                }
+                            }
                             DenseTextField {
                                 Layout.fillWidth: true
                                 text: appController.shootDate
@@ -513,6 +639,12 @@ ApplicationWindow {
                                 enabled: !appController.busy
                                 maximumLength: 10
                                 onTextChanged: appController.shootDate = text
+                                // Highlight border in red when value is invalid
+                                background: Rectangle {
+                                    color: panelAlt
+                                    border.color: (appController.shootDate.length > 0 && !appController.shootDateValid) ? bad : line
+                                    radius: 4
+                                }
                             }
                             RowLayout {
                                 Layout.fillWidth: true
@@ -689,115 +821,183 @@ ApplicationWindow {
                     anchors.margins: 16
                     spacing: 12
 
-                    Rectangle {
-                        visible: appController.logLines.length === 0 && !appController.busy && !appController.canExport
-                        Layout.alignment: Qt.AlignCenter
-                        Layout.preferredWidth: 480
-                        Layout.preferredHeight: 220
-                        color: "transparent"
-                        Column {
-                            anchors.centerIn: parent
-                            spacing: 16
-                            Text {
-                                text: "Ready For Offload"
-                                color: ink
-                                font.family: root.sans
-                                font.pixelSize: 24
-                                font.bold: true
-                                horizontalAlignment: Text.AlignHCenter
-                                width: 480
-                            }
-                            Column {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                spacing: 8
-                                Repeater {
-                                    model: [
-                                        "1. Choose a Source folder",
-                                        "2. Add one or more Destinations",
-                                        "3. Configure Options",
-                                        "4. Click Start Offload"
-                                    ]
-                                    Text {
-                                        text: modelData
-                                        color: muted
-                                        font.family: root.sans
-                                        font.pixelSize: 14
-                                        horizontalAlignment: Text.AlignHCenter
-                                        width: 480
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: appController.logLines.length > 0 || appController.busy
                         spacing: 8
-                        MetaLabel { text: "Activity Log" }
+                        QuietButton {
+                            text: "Browse"
+                            variant: root.contentTab === 0 ? "primary" : "neutral"
+                            onClicked: root.contentTab = 0
+                            Accessible.name: "Show media browser"
+                        }
+                        QuietButton {
+                            text: "Activity Log"
+                            variant: root.contentTab === 1 ? "primary" : "neutral"
+                            onClicked: root.contentTab = 1
+                            Accessible.name: "Show activity log"
+                        }
                         Item { Layout.fillWidth: true }
                         Text {
-                            text: appController.logLines.length + " entries"
+                            text: root.contentTab === 0
+                                  ? appController.mediaModel.count + " clips"
+                                  : appController.logLines.length + " entries"
                             color: faint
                             font.family: root.mono
                             font.pixelSize: 10
                         }
                     }
 
-                    Rectangle {
+                    StackLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        visible: appController.logLines.length > 0 || appController.busy
-                        color: panel
-                        border.color: line
-                        radius: 2
-                        ListView {
-                            id: logListView
-                            anchors.fill: parent
-                            anchors.margins: 8
-                            clip: true
-                            model: appController.logLines
-                            spacing: 2
-                            onCountChanged: {
-                                if (root.logAutoScrollEnabled && count > 0) {
-                                    positionViewAtEnd()
-                                }
-                            }
-                            onContentYChanged: {
-                                const atBottom = (contentY + height) >= (contentHeight - 8)
-                                if (!appController.busy) {
-                                    root.logAutoScrollEnabled = true
-                                } else {
-                                    root.logAutoScrollEnabled = atBottom
-                                }
-                            }
-                            delegate: RowLayout {
-                                width: ListView.view.width
+                        currentIndex: root.contentTab
+
+                        // 0 — Browse: format breakdown + media grid, with
+                        // empty / scanning / no-ffmpeg fallbacks.
+                        ColumnLayout {
+                            spacing: 10
+
+                            Flow {
+                                Layout.fillWidth: true
+                                visible: root.formatBreakdown.length > 0
                                 spacing: 8
-                                property string severity: root.logSeverity(modelData)
-                                property color sevColor: severity === "ERROR" ? bad : (severity === "WARN" ? warn : muted)
-                                Text {
-                                    text: severity === "ERROR" ? "⛔" : (severity === "WARN" ? "⚠" : "•")
-                                    color: parent.sevColor
-                                    font.family: root.sans
-                                    font.pixelSize: 11
-                                }
-                                Text {
-                                    text: root.logTimestamp(modelData)
-                                    color: faint
-                                    font.family: root.mono
-                                    font.pixelSize: 11
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: root.logMessage(modelData)
-                                    color: parent.sevColor
-                                    font.family: root.mono
-                                    font.pixelSize: 11
-                                    elide: Text.ElideRight
+                                Repeater {
+                                    model: root.formatBreakdown
+                                    Rectangle {
+                                        height: 22
+                                        width: chipText.implicitWidth + 20
+                                        radius: 11
+                                        color: panelAlt
+                                        border.color: line
+                                        Text {
+                                            id: chipText
+                                            anchors.centerIn: parent
+                                            text: modelData.kind + " · " + modelData.count + " · "
+                                                  + appController.formatBytes(modelData.bytes)
+                                            color: ink
+                                            font.family: root.mono
+                                            font.pixelSize: 10
+                                        }
+                                    }
                                 }
                             }
-                            ScrollBar.vertical: ScrollBar {}
+
+                            MediaGrid {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                visible: appController.mediaModel.count > 0
+                                model: appController.mediaModel
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                visible: appController.mediaModel.count === 0
+                                Column {
+                                    anchors.centerIn: parent
+                                    width: 480
+                                    spacing: 12
+                                    Text {
+                                        text: appController.mediaScanning ? "Scanning source…"
+                                              : (appController.sourcePath.length > 0
+                                                 ? "No media found in this source"
+                                                 : "Ready For Offload")
+                                        color: ink
+                                        font.family: root.sans
+                                        font.pixelSize: 24
+                                        font.bold: true
+                                        horizontalAlignment: Text.AlignHCenter
+                                        width: 480
+                                    }
+                                    Column {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        spacing: 8
+                                        visible: appController.sourcePath.length === 0 && !appController.mediaScanning
+                                        Repeater {
+                                            model: [
+                                                "1. Choose a Source folder to preview its media",
+                                                "2. Add one or more Destinations",
+                                                "3. Configure Options",
+                                                "4. Click Start Offload"
+                                            ]
+                                            Text {
+                                                text: modelData
+                                                color: muted
+                                                font.family: root.sans
+                                                font.pixelSize: 14
+                                                horizontalAlignment: Text.AlignHCenter
+                                                width: 480
+                                            }
+                                        }
+                                    }
+                                    Text {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        visible: !appController.ffmpegAvailable && appController.sourcePath.length > 0
+                                        text: "ffmpeg not found — clips show format badges instead of thumbnails."
+                                        color: warn
+                                        font.family: root.sans
+                                        font.pixelSize: 12
+                                        horizontalAlignment: Text.AlignHCenter
+                                        width: 480
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+                            }
+                        }
+
+                        // 1 — Activity Log.
+                        Rectangle {
+                            color: panel
+                            border.color: line
+                            radius: 2
+                            ListView {
+                                id: logListView
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                clip: true
+                                model: appController.logLines
+                                spacing: 2
+                                onCountChanged: {
+                                    if (root.logAutoScrollEnabled && count > 0) {
+                                        positionViewAtEnd()
+                                    }
+                                }
+                                onContentYChanged: {
+                                    const atBottom = (contentY + height) >= (contentHeight - 8)
+                                    if (!appController.busy) {
+                                        root.logAutoScrollEnabled = true
+                                    } else {
+                                        root.logAutoScrollEnabled = atBottom
+                                    }
+                                }
+                                delegate: RowLayout {
+                                    width: ListView.view.width
+                                    spacing: 8
+                                    property string severity: root.logSeverity(modelData)
+                                    property color sevColor: severity === "ERROR" ? bad : (severity === "WARN" ? warn : muted)
+                                    Text {
+                                        text: severity === "ERROR" ? "⛔" : (severity === "WARN" ? "⚠" : "•")
+                                        color: parent.sevColor
+                                        font.family: root.sans
+                                        font.pixelSize: 11
+                                    }
+                                    Text {
+                                        text: root.logTimestamp(modelData)
+                                        color: faint
+                                        font.family: root.mono
+                                        font.pixelSize: 11
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: root.logMessage(modelData)
+                                        color: parent.sevColor
+                                        font.family: root.mono
+                                        font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                                ScrollBar.vertical: ScrollBar {}
+                            }
                         }
                     }
                 }
@@ -824,13 +1024,51 @@ ApplicationWindow {
                         font.pixelSize: 12
                         elide: Text.ElideMiddle
                     }
+                    // Transfer speed + ETA
+                    Text {
+                        visible: appController.busy && appController.transferSpeed.length > 0
+                        text: appController.transferSpeed
+                              + (appController.etaText.length > 0 ? " · " + appController.etaText : "")
+                        color: faint
+                        font.family: root.mono
+                        font.pixelSize: 11
+                        Accessible.name: "Transfer speed " + appController.transferSpeed
+                    }
                     StyledProgressBar {
-                        Layout.preferredWidth: 180
+                        Layout.preferredWidth: 160
                         from: 0
                         to: 1
                         value: appController.overallProgress
                         indeterminate: appController.busy && appController.statusText === "Scanning source..." && appController.overallProgress <= 0
                         visible: appController.busy || appController.overallProgress > 0
+                    }
+                    // ffmpeg status badge
+                    Rectangle {
+                        height: 22
+                        width: ffmpegBadgeText.implicitWidth + 16
+                        radius: 11
+                        color: appController.ffmpegAvailable ? green : warn
+                        opacity: 0.85
+                        visible: true
+                        ToolTip.visible: ffmpegBadgeArea.containsMouse
+                        ToolTip.text: appController.ffmpegAvailable
+                            ? "ffmpeg is available — thumbnails enabled"
+                            : "ffmpeg not found — install it to enable thumbnails"
+                        MouseArea {
+                            id: ffmpegBadgeArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            acceptedButtons: Qt.NoButton
+                        }
+                        Text {
+                            id: ffmpegBadgeText
+                            anchors.centerIn: parent
+                            text: appController.ffmpegAvailable ? "ffmpeg ✓" : "ffmpeg ✗"
+                            color: "#ffffff"
+                            font.family: root.mono
+                            font.pixelSize: 9
+                            font.bold: true
+                        }
                     }
                     StyledComboBox {
                         Layout.preferredWidth: 70

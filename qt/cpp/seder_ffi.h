@@ -158,6 +158,39 @@ char *seder_extract_thumbnail(
     const char *algorithm,
     const char *hash);
 
+/* Walk `source_path` and return a JSON array of media files WITHOUT
+ * hashing them: [{"rel_path","abs_path","size","kind"}]. `ignore_patterns`
+ * is a comma/newline-separated list; `ignore_hidden_system` toggles the
+ * hidden/system filter (same semantics as the offload). Heap-allocated;
+ * free with seder_string_free. NULL on a null/unreadable source; "[]" for
+ * an empty source. Cheap enough to drive the pre-offload media browser. */
+char *seder_scan_media_list(
+    const char *source_path,
+    const char *ignore_patterns,
+    uint8_t ignore_hidden_system);
+
+/* Aggregate the same walk into a per-format breakdown JSON array:
+ * [{"kind","count","bytes"}], sorted descending by bytes. Heap-allocated;
+ * free with seder_string_free. NULL on a null/unreadable source. */
+char *seder_format_breakdown(
+    const char *source_path,
+    const char *ignore_patterns,
+    uint8_t ignore_hidden_system);
+
+/* Compare source_path against dest_path. mode: "path_size" | "mtime" |
+ * "checksum". checksum_algorithm: "BLAKE3" | "XXH3". ignore_patterns and
+ * ignore_hidden_system apply to the source walk only.
+ * Returns JSON: {"mode","source","dest","matched","differing",
+ * "missing_in_dest","extra_in_dest","entries":[{"path","status","detail?}]}.
+ * Heap-allocated; free with seder_string_free. NULL on error. */
+char *seder_compare_folders(
+    const char *source_path,
+    const char *dest_path,
+    const char *mode,
+    const char *checksum_algorithm,
+    const char *ignore_patterns,
+    uint8_t ignore_hidden_system);
+
 /* Expand a destination template like "{project}/{date}/{card}". The
  * returned string is heap-allocated; release it with seder_string_free.
  * Returns NULL on failure. */

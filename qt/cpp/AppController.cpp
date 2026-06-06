@@ -5,13 +5,17 @@
 
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QGuiApplication>
 #include <QClipboard>
 #include <QDateTime>
 #include <QDir>
 #include <QSaveFile>
+#include <QStandardPaths>
 #include <QThread>
 #include <QRegularExpression>
+#include <QUrl>
+#include <QtConcurrentRun>
 #include <functional>
 
 namespace {
@@ -30,7 +34,15 @@ AppController::AppController(SettingsStore *settings, QObject *parent)
     : QObject(parent)
     , m_settings(settings)
     , m_destinationModel(new DestinationListModel(this))
+    , m_mediaModel(new MediaListModel(this))
 {
+    // On-disk thumbnail cache, shared across runs. Keyed by size+mtime, so it
+    // survives source renames and only regenerates when a file changes.
+    const QString cacheRoot =
+        QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    m_thumbCacheDir = QDir(cacheRoot).filePath(QStringLiteral("thumbnails"));
+    QDir().mkpath(m_thumbCacheDir);
+
     if (m_settings) {
         m_ignorePatterns = m_settings->defaultIgnorePatterns();
         m_ignoreHiddenSystem = m_settings->defaultIgnoreHiddenSystem();
@@ -47,6 +59,19 @@ AppController::AppController(SettingsStore *settings, QObject *parent)
     appendLog(QStringLiteral("Ready to offload media."));
 }
 
+AppController::~AppController()
+{
+    // Stop any in-flight thumbnail generation and let the thread unwind so we
+    // don't tear down a running QThread underneath the pool.
+    if (m_thumbWorker) {
+        m_thumbWorker->cancel();
+    }
+    if (m_thumbThread) {
+        m_thumbThread->quit();
+        m_thumbThread->wait(3000);
+    }
+}
+
 QString AppController::appVersion() const
 {
 #ifdef SEDER_DIT_VERSION
@@ -59,6 +84,8 @@ QString AppController::appVersion() const
 QString AppController::sourcePath() const { return m_sourcePath; }
 void AppController::setSourcePath(const QString &value) { setIfChanged(m_sourcePath, value, [this] { emit sourcePathChanged(); }); }
 DestinationListModel *AppController::destinationModel() const { return m_destinationModel; }
+MediaListModel *AppController::mediaModel() const { return m_mediaModel; }
+bool AppController::mediaScanning() const { return m_mediaScanning; }
 QString AppController::projectName() const { return m_projectName; }
 void AppController::setProjectName(const QString &value) { setIfChanged(m_projectName, value.trimmed(), [this] { emit projectNameChanged(); }); }
 QString AppController::shootDate() const { return m_shootDate; }
@@ -102,6 +129,8 @@ void AppController::setChecksumAlgorithm(const QString &value)
 }
 bool AppController::busy() const { return m_busy; }
 double AppController::overallProgress() const { return m_overallProgress; }
+QString AppController::transferSpeed() const { return m_transferSpeed; }
+QString AppController::etaText() const { return m_etaText; }
 QString AppController::statusText() const { return m_statusText; }
 QString AppController::currentFile() const { return m_currentFile; }
 QStringList AppController::logLines() const { return m_logLines; }
@@ -140,6 +169,128 @@ void AppController::addSourceFromPath(const QString &path)
     setSourcePath(fi.absoluteFilePath());
     if (m_settings) {
         m_settings->rememberSource(fi.absoluteFilePath());
+    }
+    // Populate the media browser for the freshly chosen source.
+    loadSourceMedia();
+}
+
+void AppController::loadSourceMedia()
+{
+    if (m_sourcePath.isEmpty()) {
+        clearSourceMedia();
+        return;
+    }
+    // Abandon any thumbnails still generating for a previous source.
+    stopThumbnailGeneration();
+
+    m_mediaScanning = true;
+    emit mediaScanningChanged();
+
+    // The walk only stats files (no hashing), but a card with thousands of
+    // clips can still take a moment — run it off the UI thread.
+    const QString source = m_sourcePath;
+    const QString ignore = m_ignorePatterns;
+    const bool ignoreHidden = m_ignoreHiddenSystem;
+
+    auto *watcher = new QFutureWatcher<QString>(this);
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher]() {
+        const QString json = watcher->result();
+        watcher->deleteLater();
+        m_mediaScanning = false;
+        emit mediaScanningChanged();
+        m_mediaModel->resetFromJson(json.toUtf8());
+        startThumbnailGeneration();
+    });
+    watcher->setFuture(QtConcurrent::run([source, ignore, ignoreHidden]() -> QString {
+        const QByteArray s = source.toUtf8();
+        const QByteArray ig = ignore.toUtf8();
+        char *json = seder_scan_media_list(s.constData(), ig.constData(), ignoreHidden ? 1 : 0);
+        if (!json) return QStringLiteral("[]");
+        const QString result = QString::fromUtf8(json);
+        seder_string_free(json);
+        return result;
+    }));
+}
+
+void AppController::clearSourceMedia()
+{
+    stopThumbnailGeneration();
+    m_mediaModel->clear();
+}
+
+QString AppController::formatBreakdownJson() const
+{
+    if (m_sourcePath.isEmpty()) return QStringLiteral("[]");
+    const QByteArray s = m_sourcePath.toUtf8();
+    const QByteArray ig = m_ignorePatterns.toUtf8();
+    char *json = seder_format_breakdown(s.constData(), ig.constData(), m_ignoreHiddenSystem ? 1 : 0);
+    if (!json) return QStringLiteral("[]");
+    const QString result = QString::fromUtf8(json);
+    seder_string_free(json);
+    return result;
+}
+
+void AppController::startThumbnailGeneration()
+{
+    if (!ffmpegAvailable()) {
+        // Without ffmpeg, every video candidate falls back to a format badge
+        // rather than spinning forever.
+        const auto entries = m_mediaModel->entries();
+        for (const auto &e : entries) {
+            if (e.thumbnailState == MediaListModel::NoThumb) {
+                m_mediaModel->setThumbnailState(e.absolutePath, MediaListModel::Failed);
+            }
+        }
+        return;
+    }
+
+    QVector<ThumbnailWorker::Job> jobs;
+    const auto entries = m_mediaModel->entries();
+    for (const auto &e : entries) {
+        if (e.thumbnailState != MediaListModel::NoThumb) continue;
+        const QFileInfo fi(e.absolutePath);
+        const QString key = QStringLiteral("%1-%2")
+            .arg(e.size)
+            .arg(fi.lastModified().toSecsSinceEpoch());
+        jobs.append({ e.absolutePath, key });
+        m_mediaModel->setThumbnailState(e.absolutePath, MediaListModel::Pending);
+    }
+    if (jobs.isEmpty()) return;
+
+    auto *thread = new QThread(this);
+    auto *worker = new ThumbnailWorker(std::move(jobs), m_thumbCacheDir);
+    m_thumbWorker = worker;
+    m_thumbThread = thread;
+    worker->moveToThread(thread);
+
+    connect(thread, &QThread::started, worker, &ThumbnailWorker::run);
+    connect(worker, &ThumbnailWorker::thumbnailReady, this,
+            [this](const QString &absolutePath, const QString &thumbPath, bool ok) {
+        if (ok && !thumbPath.isEmpty()) {
+            m_mediaModel->setThumbnail(absolutePath, QUrl::fromLocalFile(thumbPath),
+                                       MediaListModel::Ready);
+        } else {
+            m_mediaModel->setThumbnailState(absolutePath, MediaListModel::Failed);
+        }
+    });
+    connect(worker, &ThumbnailWorker::finished, thread, &QThread::quit);
+    connect(thread, &QThread::finished, worker, &QObject::deleteLater);
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    // Only clear the handles if they still point at this generation; a newer
+    // source may have replaced them already.
+    connect(thread, &QThread::finished, this, [this, worker, thread]() {
+        if (m_thumbWorker == worker) m_thumbWorker = nullptr;
+        if (m_thumbThread == thread) m_thumbThread = nullptr;
+    });
+    thread->start();
+}
+
+void AppController::stopThumbnailGeneration()
+{
+    // Cooperatively cancel; the worker breaks out of its loop, the thread
+    // quits, and the finished() handlers clean everything up.
+    if (m_thumbWorker) {
+        m_thumbWorker->cancel();
     }
 }
 
@@ -350,6 +501,7 @@ void AppController::startOffload()
 
     setBusy(true);
     setOverallProgress(0.0);
+    resetTransferRate();
     setStatusText(QStringLiteral("Starting offload..."));
     setCurrentFile(QString());
     setPass(false);
@@ -407,6 +559,7 @@ void AppController::startOffload()
             }
         } else if (update.overallBytesTotal > 0) {
             setOverallProgress(static_cast<double>(update.overallBytesCompleted) / static_cast<double>(update.overallBytesTotal));
+            updateTransferRate(update.overallBytesCompleted, update.overallBytesTotal);
         }
 
         // Log per-destination file completions during copy/verify phases
@@ -477,6 +630,7 @@ void AppController::startOffload()
     });
     connect(worker, &DitOffloadWorker::finished, this, [this, request](const FinalReportData &report) {
         setBusy(false);
+        resetTransferRate();
         setOverallProgress(1.0);
         setPass(report.allPass);
         for (int i = 0; i < report.destinationStates.size() && i < m_destinationModel->count(); ++i) {
@@ -495,6 +649,7 @@ void AppController::startOffload()
         } else {
             setStatusText(QStringLiteral("Offload completed with errors."));
             appendLog(QStringLiteral("Offload completed with errors."), LogSeverity::Error);
+            emit offloadFailed(QStringLiteral("Offload completed with one or more errors. Check the Activity Log for details."));
         }
         for (int i = 0; i < m_destinationModel->count() && i < report.destinationCounts.size(); ++i) {
             auto *item = m_destinationModel->items().at(i);
@@ -557,13 +712,16 @@ void AppController::startOffload()
     });
     connect(worker, &DitOffloadWorker::failed, this, [this](const QString &message) {
         setBusy(false);
+        resetTransferRate();
         setOverallProgress(0.0);
         setStatusText(message);
         setPass(false);
         appendLog(QStringLiteral("Offload failed: %1").arg(message), LogSeverity::Error);
+        emit offloadFailed(message);
     });
     connect(worker, &DitOffloadWorker::cancelled, this, [this] {
         setBusy(false);
+        resetTransferRate();
         setOverallProgress(0.0);
         setStatusText(QStringLiteral("Offload cancelled."));
         setPass(false);
@@ -672,6 +830,72 @@ void AppController::setOverallProgress(double value)
     emit overallProgressChanged();
 }
 
+void AppController::updateTransferRate(quint64 bytesCompleted, quint64 bytesTotal)
+{
+    // Seed the timer on the first byte-bearing sample.
+    if (!m_rateTimer.isValid()) {
+        m_rateTimer.start();
+        m_lastBytes = bytesCompleted;
+        return;
+    }
+    const qint64 elapsedMs = m_rateTimer.elapsed();
+    if (elapsedMs < 300) return; // ~3 samples/sec keeps the number readable
+
+    const double dt = static_cast<double>(elapsedMs) / 1000.0;
+    const double inst = (bytesCompleted >= m_lastBytes)
+        ? static_cast<double>(bytesCompleted - m_lastBytes) / dt
+        : 0.0;
+    // Exponential moving average so the figure doesn't jitter chunk-to-chunk.
+    m_smoothedBytesPerSec = (m_smoothedBytesPerSec <= 0.0)
+        ? inst
+        : (0.6 * m_smoothedBytesPerSec + 0.4 * inst);
+    m_lastBytes = bytesCompleted;
+    m_rateTimer.restart();
+
+    QString speed;
+    QString eta;
+    if (m_smoothedBytesPerSec > 1.0) {
+        speed = formatBytes(static_cast<quint64>(m_smoothedBytesPerSec)) + QStringLiteral("/s");
+        if (bytesTotal > bytesCompleted) {
+            const double remaining =
+                static_cast<double>(bytesTotal - bytesCompleted) / m_smoothedBytesPerSec;
+            eta = formatDuration(static_cast<qint64>(remaining));
+        }
+    }
+    if (speed != m_transferSpeed || eta != m_etaText) {
+        m_transferSpeed = speed;
+        m_etaText = eta;
+        emit rateChanged();
+    }
+}
+
+void AppController::resetTransferRate()
+{
+    m_rateTimer.invalidate();
+    m_lastBytes = 0;
+    m_smoothedBytesPerSec = 0.0;
+    if (!m_transferSpeed.isEmpty() || !m_etaText.isEmpty()) {
+        m_transferSpeed.clear();
+        m_etaText.clear();
+        emit rateChanged();
+    }
+}
+
+QString AppController::formatDuration(qint64 seconds)
+{
+    if (seconds < 0) seconds = 0;
+    const qint64 h = seconds / 3600;
+    const qint64 m = (seconds % 3600) / 60;
+    const qint64 s = seconds % 60;
+    if (h > 0) {
+        return QStringLiteral("%1:%2:%3")
+            .arg(h)
+            .arg(m, 2, 10, QLatin1Char('0'))
+            .arg(s, 2, 10, QLatin1Char('0'));
+    }
+    return QStringLiteral("%1:%2").arg(m, 2, 10, QLatin1Char('0')).arg(s, 2, 10, QLatin1Char('0'));
+}
+
 void AppController::setStatusText(const QString &value)
 {
     if (m_statusText == value) return;
@@ -707,18 +931,23 @@ void AppController::writeExport(const QString &caption, const QString &defaultNa
     }
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        setStatusText(QStringLiteral("Unable to write %1").arg(path));
-        appendLog(QStringLiteral("Unable to write %1").arg(path), LogSeverity::Error);
+        const QString msg = QStringLiteral("Unable to write %1").arg(path);
+        setStatusText(msg);
+        appendLog(msg, LogSeverity::Error);
+        emit exportFailed(msg);
         return;
     }
     file.write(contents.toUtf8());
     if (!file.commit()) {
-        setStatusText(QStringLiteral("Unable to save %1").arg(path));
-        appendLog(QStringLiteral("Unable to save %1").arg(path), LogSeverity::Error);
+        const QString msg = QStringLiteral("Unable to save %1").arg(path);
+        setStatusText(msg);
+        appendLog(msg, LogSeverity::Error);
+        emit exportFailed(msg);
         return;
     }
     setStatusText(QStringLiteral("Export complete."));
     appendLog(QStringLiteral("Exported %1").arg(path));
+    emit exportSucceeded(path);
 }
 void AppController::clearLog()
 {
@@ -737,4 +966,71 @@ void AppController::copyLog()
     }
     clipboard->setText(m_logLines.join(u'\n'));
     appendLog(QStringLiteral("Copied log to clipboard."));
+}
+
+bool AppController::comparing() const { return m_comparing; }
+QString AppController::compareResultJson() const { return m_compareResultJson; }
+
+bool AppController::isValidShootDate(const QString &date)
+{
+    static const QRegularExpression re(QStringLiteral(R"(^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$)"));
+    return date.isEmpty() || re.match(date).hasMatch();
+}
+
+bool AppController::shootDateValid() const
+{
+    return isValidShootDate(m_shootDate);
+}
+
+void AppController::runCompare(const QString &destPath, const QString &mode)
+{
+    if (m_comparing || m_sourcePath.isEmpty() || destPath.isEmpty()) return;
+    m_comparing = true;
+    m_compareResultJson.clear();
+    emit compareStateChanged();
+    appendLog(QStringLiteral("Starting compare: %1 vs %2 (%3)").arg(m_sourcePath, destPath, mode));
+
+    const QString src = m_sourcePath;
+    const QString ig = m_ignorePatterns;
+    const bool ignoreHidden = m_ignoreHiddenSystem;
+    const QString algo = m_checksumAlgorithm;
+
+    auto *watcher = new QFutureWatcher<QString>(this);
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher] {
+        m_compareResultJson = watcher->result();
+        m_comparing = false;
+        emit compareStateChanged();
+        watcher->deleteLater();
+        const bool ok = !m_compareResultJson.isEmpty();
+        if (ok)
+            appendLog(QStringLiteral("Compare complete."));
+        else
+            appendLog(QStringLiteral("Compare failed — check paths."), LogSeverity::Error);
+    });
+
+    auto future = QtConcurrent::run([src, destPath, mode, ig, ignoreHidden, algo]() -> QString {
+        const QByteArray s = src.toUtf8();
+        const QByteArray d = destPath.toUtf8();
+        const QByteArray m = mode.toUtf8();
+        const QByteArray a = algo.toUtf8();
+        const QByteArray p = ig.toUtf8();
+        char *json = seder_compare_folders(
+            s.constData(), d.constData(), m.constData(),
+            a.constData(), p.constData(), ignoreHidden ? 1 : 0);
+        if (!json) return QString();
+        QString result = QString::fromUtf8(json);
+        seder_string_free(json);
+        return result;
+    });
+    watcher->setFuture(future);
+}
+
+void AppController::renameDestination(int index, const QString &label)
+{
+    if (index < 0 || index >= m_destinationModel->count()) return;
+    const QString trimmed = label.trimmed();
+    auto *item = m_destinationModel->items().at(index);
+    item->setLabel(trimmed.isEmpty()
+        ? QStringLiteral("Destination %1").arg(index + 1)
+        : trimmed);
 }

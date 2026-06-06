@@ -48,6 +48,12 @@ if [[ -z "$APP_BUNDLE" ]]; then
   exit 1
 fi
 
+# Bundle ffmpeg/ffprobe for out-of-the-box thumbnail support.
+FFMPEG_DEST="$APP_BUNDLE/Contents/MacOS"
+# shellcheck source=scripts/fetch-ffmpeg.sh
+source "$ROOT_DIR/scripts/fetch-ffmpeg.sh"
+fetch_ffmpeg "$FFMPEG_DEST"
+
 codesign --force --deep --options runtime \
   --identifier com.sederproductions.media-suite.dit-qt \
   --sign - \
