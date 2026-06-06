@@ -916,91 +916,6 @@ pub unsafe extern "C" fn seder_format_breakdown(
     result.unwrap_or(std::ptr::null_mut())
 }
 
-/// Compare `source_path` against `dest_path`, returning a JSON report:
-/// `{"summary":{"matched","differing","missing","extra"},"entries":[{"rel_path","status"}]}`
-/// where status is match / missing_in_dest / extra_in_dest / size_mismatch /
-/// mtime_mismatch / checksum_mismatch. `mode` is PATHSIZE / MTIME / CHECKSUM
-/// (case-insensitive; unknown falls back to PATHSIZE). Honours the same ignore
-/// rules as the offload. Heap-allocated; free with `seder_string_free`. NULL on
-/// null or unreadable inputs.
-#[no_mangle]
-pub unsafe extern "C" fn seder_compare_folders(
-    source_path: *const c_char,
-    dest_path: *const c_char,
-    mode: *const c_char,
-    checksum_algorithm: *const c_char,
-    ignore_patterns: *const c_char,
-    ignore_hidden_system: u8,
-) -> *mut c_char {
-    let result = catch_unwind(|| {
-        if source_path.is_null() || dest_path.is_null() {
-            return std::ptr::null_mut::<c_char>();
-        }
-        let source = unsafe { cstr_to_string(source_path) };
-        let dest = unsafe { cstr_to_string(dest_path) };
-        let mode_s = unsafe { cstr_to_string(mode) };
-        let mode = CompareMode::parse(&mode_s);
-        let algorithm = if checksum_algorithm.is_null() {
-            ChecksumAlgo::default()
-        } else {
-            let name = unsafe { cstr_to_string(checksum_algorithm) };
-            ChecksumAlgo::parse(&name).unwrap_or_default()
-        };
-        let patterns: Vec<String> = unsafe { cstr_to_string(ignore_patterns) }
-            .split([',', '\n', '\r'])
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        let options = OffloadOptions {
-            ignore_hidden_system: ignore_hidden_system != 0,
-            ignore_patterns: patterns,
-            ..OffloadOptions::default()
-        };
-
-        let report = match compare(
-            std::path::Path::new(&source),
-            std::path::Path::new(&dest),
-            mode,
-            &options,
-            algorithm,
-        ) {
-            Ok(r) => r,
-            Err(_) => return std::ptr::null_mut(),
-        };
-
-        // Only surface differences; the matched count lives in the summary, so
-        // a fully-matching compare returns an empty entries list (cheap for the
-        // common case of thousands of identical files).
-        let entries: Vec<serde_json::Value> = report
-            .entries
-            .iter()
-            .filter(|e| e.status.as_str() != "match")
-            .map(|e| {
-                serde_json::json!({
-                    "rel_path": e.rel_path,
-                    "status": e.status.as_str(),
-                })
-            })
-            .collect();
-        let payload = serde_json::json!({
-            "summary": {
-                "matched": report.matched,
-                "differing": report.differing,
-                "missing": report.missing,
-                "extra": report.extra,
-            },
-            "entries": entries,
-        });
-        match serde_json::to_string(&payload) {
-            Ok(s) => CString::new(s)
-                .map(|c| c.into_raw())
-                .unwrap_or(std::ptr::null_mut()),
-            Err(_) => std::ptr::null_mut(),
-        }
-    });
-    result.unwrap_or(std::ptr::null_mut())
-}
-
 /// Expand a destination template (e.g. "{project}/{date}/{card}") given the
 /// project metadata. The returned C string is heap-allocated and must be
 /// freed with `seder_string_free`. Returns NULL on null inputs.
@@ -1307,7 +1222,7 @@ mod tests {
             s
         };
         assert!(json.contains("\"matched\":1"));
-        assert!(json.contains("\"missing\":1"));
+        assert!(json.contains("\"missing_in_dest\":1"));
         assert!(json.contains("missing_in_dest"));
     }
 

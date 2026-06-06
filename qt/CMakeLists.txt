@@ -172,7 +172,6 @@ qt_add_qml_module(seder-media-suite-dit-qt
         qml/CompareDialog.qml
         qml/AboutDialog.qml
         qml/PreferencesDialog.qml
-        qml/CompareDialog.qml
 )
 
 target_include_directories(seder-media-suite-dit-qt PRIVATE cpp)
