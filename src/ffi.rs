@@ -1006,7 +1006,7 @@ pub unsafe extern "C" fn seder_compare_folders(
             ignore_patterns: patterns,
             ..OffloadOptions::default()
         };
-        let compare_mode = CompareMode::from_str(&mode_str);
+        let compare_mode = CompareMode::parse(&mode_str);
         match compare(
             std::path::Path::new(&source),
             std::path::Path::new(&dest),

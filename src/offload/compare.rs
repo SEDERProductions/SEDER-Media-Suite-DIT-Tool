@@ -14,8 +14,8 @@ pub enum CompareMode {
 }
 
 impl CompareMode {
-    pub fn from_str(s: &str) -> Self {
-        match s {
+    pub fn parse(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
             "mtime" => CompareMode::MTime,
             "checksum" => CompareMode::Checksum,
             _ => CompareMode::PathSize,
