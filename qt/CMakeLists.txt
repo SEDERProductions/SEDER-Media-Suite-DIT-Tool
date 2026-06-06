@@ -169,6 +169,7 @@ qt_add_qml_module(seder-media-suite-dit-qt
         qml/StyledProgressBar.qml
         qml/PathPicker.qml
         qml/MediaGrid.qml
+        qml/CompareDialog.qml
         qml/AboutDialog.qml
         qml/PreferencesDialog.qml
         qml/CompareDialog.qml

@@ -90,12 +90,6 @@ QString AppController::projectName() const { return m_projectName; }
 void AppController::setProjectName(const QString &value) { setIfChanged(m_projectName, value.trimmed(), [this] { emit projectNameChanged(); }); }
 QString AppController::shootDate() const { return m_shootDate; }
 void AppController::setShootDate(const QString &value) { setIfChanged(m_shootDate, value.trimmed(), [this] { emit shootDateChanged(); }); }
-bool AppController::shootDateValid() const
-{
-    if (m_shootDate.isEmpty()) return true; // optional field
-    static const QRegularExpression re(QStringLiteral(R"(^\d{4}-\d{2}-\d{2}$)"));
-    return re.match(m_shootDate).hasMatch();
-}
 QString AppController::cardName() const { return m_cardName; }
 void AppController::setCardName(const QString &value) { setIfChanged(m_cardName, value.trimmed(), [this] { emit cardNameChanged(); }); }
 QString AppController::cameraId() const { return m_cameraId; }
@@ -234,54 +228,6 @@ QString AppController::formatBreakdownJson() const
     const QString result = QString::fromUtf8(json);
     seder_string_free(json);
     return result;
-}
-
-bool AppController::comparing() const { return m_comparing; }
-QString AppController::compareResultJson() const { return m_compareJson; }
-
-void AppController::runCompare(const QString &destPath, const QString &mode)
-{
-    if (m_comparing) return;
-    if (m_sourcePath.isEmpty() || destPath.isEmpty()) {
-        appendLog(QStringLiteral("Compare needs both a source and a destination folder."),
-                  LogSeverity::Warn);
-        return;
-    }
-    m_comparing = true;
-    m_compareJson.clear();
-    emit compareStateChanged();
-
-    // Snapshot inputs by value for the worker thread (a checksum compare reads
-    // both trees, so keep it off the UI thread).
-    const QString source = m_sourcePath;
-    const QString dest = destPath;
-    const QString modeStr = mode;
-    const QString algo = m_checksumAlgorithm;
-    const QString ignore = m_ignorePatterns;
-    const bool ignoreHidden = m_ignoreHiddenSystem;
-
-    auto *watcher = new QFutureWatcher<QString>(this);
-    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher]() {
-        m_compareJson = watcher->result();
-        watcher->deleteLater();
-        m_comparing = false;
-        emit compareStateChanged();
-    });
-    watcher->setFuture(QtConcurrent::run(
-        [source, dest, modeStr, algo, ignore, ignoreHidden]() -> QString {
-            const QByteArray s = source.toUtf8();
-            const QByteArray d = dest.toUtf8();
-            const QByteArray m = modeStr.toUtf8();
-            const QByteArray al = algo.toUtf8();
-            const QByteArray ig = ignore.toUtf8();
-            char *json = seder_compare_folders(
-                s.constData(), d.constData(), m.constData(),
-                al.constData(), ig.constData(), ignoreHidden ? 1 : 0);
-            if (!json) return QString();
-            const QString result = QString::fromUtf8(json);
-            seder_string_free(json);
-            return result;
-        }));
 }
 
 void AppController::startThumbnailGeneration()
@@ -507,17 +453,6 @@ void AppController::removeDestination(int index)
     m_destinationModel->removeDestination(index);
 }
 
-void AppController::renameDestination(int index, const QString &label)
-{
-    const auto items = m_destinationModel->items();
-    if (index < 0 || index >= items.size()) return;
-    const QString trimmed = label.trimmed();
-    // Empty input falls back to the positional default so a card is never nameless.
-    items.at(index)->setLabel(trimmed.isEmpty()
-        ? QStringLiteral("Destination %1").arg(index + 1)
-        : trimmed);
-}
-
 void AppController::startOffload()
 {
     if (m_busy) return;
@@ -695,8 +630,8 @@ void AppController::startOffload()
     });
     connect(worker, &DitOffloadWorker::finished, this, [this, request](const FinalReportData &report) {
         setBusy(false);
-        setOverallProgress(1.0);
         resetTransferRate();
+        setOverallProgress(1.0);
         setPass(report.allPass);
         for (int i = 0; i < report.destinationStates.size() && i < m_destinationModel->count(); ++i) {
             auto *item = m_destinationModel->items().at(i);
@@ -714,6 +649,7 @@ void AppController::startOffload()
         } else {
             setStatusText(QStringLiteral("Offload completed with errors."));
             appendLog(QStringLiteral("Offload completed with errors."), LogSeverity::Error);
+            emit offloadFailed(QStringLiteral("Offload completed with one or more errors. Check the Activity Log for details."));
         }
         for (int i = 0; i < m_destinationModel->count() && i < report.destinationCounts.size(); ++i) {
             auto *item = m_destinationModel->items().at(i);
@@ -776,8 +712,8 @@ void AppController::startOffload()
     });
     connect(worker, &DitOffloadWorker::failed, this, [this](const QString &message) {
         setBusy(false);
-        setOverallProgress(0.0);
         resetTransferRate();
+        setOverallProgress(0.0);
         setStatusText(message);
         setPass(false);
         appendLog(QStringLiteral("Offload failed: %1").arg(message), LogSeverity::Error);
@@ -785,8 +721,8 @@ void AppController::startOffload()
     });
     connect(worker, &DitOffloadWorker::cancelled, this, [this] {
         setBusy(false);
-        setOverallProgress(0.0);
         resetTransferRate();
+        setOverallProgress(0.0);
         setStatusText(QStringLiteral("Offload cancelled."));
         setPass(false);
         appendLog(QStringLiteral("Offload cancelled by user."), LogSeverity::Warn);
@@ -995,16 +931,18 @@ void AppController::writeExport(const QString &caption, const QString &defaultNa
     }
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        setStatusText(QStringLiteral("Unable to write %1").arg(path));
-        appendLog(QStringLiteral("Unable to write %1").arg(path), LogSeverity::Error);
-        emit exportFailed(tr("Unable to write %1").arg(path));
+        const QString msg = QStringLiteral("Unable to write %1").arg(path);
+        setStatusText(msg);
+        appendLog(msg, LogSeverity::Error);
+        emit exportFailed(msg);
         return;
     }
     file.write(contents.toUtf8());
     if (!file.commit()) {
-        setStatusText(QStringLiteral("Unable to save %1").arg(path));
-        appendLog(QStringLiteral("Unable to save %1").arg(path), LogSeverity::Error);
-        emit exportFailed(tr("Unable to save %1").arg(path));
+        const QString msg = QStringLiteral("Unable to save %1").arg(path);
+        setStatusText(msg);
+        appendLog(msg, LogSeverity::Error);
+        emit exportFailed(msg);
         return;
     }
     setStatusText(QStringLiteral("Export complete."));
@@ -1028,4 +966,71 @@ void AppController::copyLog()
     }
     clipboard->setText(m_logLines.join(u'\n'));
     appendLog(QStringLiteral("Copied log to clipboard."));
+}
+
+bool AppController::comparing() const { return m_comparing; }
+QString AppController::compareResultJson() const { return m_compareResultJson; }
+
+bool AppController::isValidShootDate(const QString &date)
+{
+    static const QRegularExpression re(QStringLiteral(R"(^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$)"));
+    return date.isEmpty() || re.match(date).hasMatch();
+}
+
+bool AppController::shootDateValid() const
+{
+    return isValidShootDate(m_shootDate);
+}
+
+void AppController::runCompare(const QString &destPath, const QString &mode)
+{
+    if (m_comparing || m_sourcePath.isEmpty() || destPath.isEmpty()) return;
+    m_comparing = true;
+    m_compareResultJson.clear();
+    emit compareStateChanged();
+    appendLog(QStringLiteral("Starting compare: %1 vs %2 (%3)").arg(m_sourcePath, destPath, mode));
+
+    const QString src = m_sourcePath;
+    const QString ig = m_ignorePatterns;
+    const bool ignoreHidden = m_ignoreHiddenSystem;
+    const QString algo = m_checksumAlgorithm;
+
+    auto *watcher = new QFutureWatcher<QString>(this);
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher] {
+        m_compareResultJson = watcher->result();
+        m_comparing = false;
+        emit compareStateChanged();
+        watcher->deleteLater();
+        const bool ok = !m_compareResultJson.isEmpty();
+        if (ok)
+            appendLog(QStringLiteral("Compare complete."));
+        else
+            appendLog(QStringLiteral("Compare failed — check paths."), LogSeverity::Error);
+    });
+
+    auto future = QtConcurrent::run([src, destPath, mode, ig, ignoreHidden, algo]() -> QString {
+        const QByteArray s = src.toUtf8();
+        const QByteArray d = destPath.toUtf8();
+        const QByteArray m = mode.toUtf8();
+        const QByteArray a = algo.toUtf8();
+        const QByteArray p = ig.toUtf8();
+        char *json = seder_compare_folders(
+            s.constData(), d.constData(), m.constData(),
+            a.constData(), p.constData(), ignoreHidden ? 1 : 0);
+        if (!json) return QString();
+        QString result = QString::fromUtf8(json);
+        seder_string_free(json);
+        return result;
+    });
+    watcher->setFuture(future);
+}
+
+void AppController::renameDestination(int index, const QString &label)
+{
+    if (index < 0 || index >= m_destinationModel->count()) return;
+    const QString trimmed = label.trimmed();
+    auto *item = m_destinationModel->items().at(index);
+    item->setLabel(trimmed.isEmpty()
+        ? QStringLiteral("Destination %1").arg(index + 1)
+        : trimmed);
 }

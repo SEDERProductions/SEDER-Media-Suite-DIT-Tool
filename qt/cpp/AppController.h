@@ -20,11 +20,8 @@ class AppController final : public QObject {
     Q_PROPERTY(DestinationListModel *destinationModel READ destinationModel CONSTANT)
     Q_PROPERTY(MediaListModel *mediaModel READ mediaModel CONSTANT)
     Q_PROPERTY(bool mediaScanning READ mediaScanning NOTIFY mediaScanningChanged)
-    Q_PROPERTY(bool comparing READ comparing NOTIFY compareStateChanged)
-    Q_PROPERTY(QString compareResultJson READ compareResultJson NOTIFY compareStateChanged)
     Q_PROPERTY(QString projectName READ projectName WRITE setProjectName NOTIFY projectNameChanged)
     Q_PROPERTY(QString shootDate READ shootDate WRITE setShootDate NOTIFY shootDateChanged)
-    Q_PROPERTY(bool shootDateValid READ shootDateValid NOTIFY shootDateChanged)
     Q_PROPERTY(QString cardName READ cardName WRITE setCardName NOTIFY cardNameChanged)
     Q_PROPERTY(QString cameraId READ cameraId WRITE setCameraId NOTIFY cameraIdChanged)
     Q_PROPERTY(QString ignorePatterns READ ignorePatterns WRITE setIgnorePatterns NOTIFY ignorePatternsChanged)
@@ -51,6 +48,9 @@ class AppController final : public QObject {
     Q_PROPERTY(quint64 totalFiles READ totalFiles NOTIFY summaryChanged)
     Q_PROPERTY(quint64 totalSize READ totalSize NOTIFY summaryChanged)
     Q_PROPERTY(bool pass READ pass NOTIFY summaryChanged)
+    Q_PROPERTY(bool comparing READ comparing NOTIFY compareStateChanged)
+    Q_PROPERTY(QString compareResultJson READ compareResultJson NOTIFY compareStateChanged)
+    Q_PROPERTY(bool shootDateValid READ shootDateValid NOTIFY shootDateChanged)
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
 
 public:
@@ -64,13 +64,10 @@ public:
     DestinationListModel *destinationModel() const;
     MediaListModel *mediaModel() const;
     bool mediaScanning() const;
-    bool comparing() const;
-    QString compareResultJson() const;
     QString projectName() const;
     void setProjectName(const QString &value);
     QString shootDate() const;
     void setShootDate(const QString &value);
-    bool shootDateValid() const;
     QString cardName() const;
     void setCardName(const QString &value);
     QString cameraId() const;
@@ -106,19 +103,20 @@ public:
     quint64 totalFiles() const;
     quint64 totalSize() const;
     bool pass() const;
+    bool comparing() const;
+    QString compareResultJson() const;
+    bool shootDateValid() const;
 
     Q_INVOKABLE void chooseSourceFolder();
     Q_INVOKABLE void loadSourceMedia();
     Q_INVOKABLE void clearSourceMedia();
     Q_INVOKABLE QString formatBreakdownJson() const;
-    Q_INVOKABLE void runCompare(const QString &destPath, const QString &mode);
     Q_INVOKABLE void addDestinationFolder();
     Q_INVOKABLE void addSourceFromPath(const QString &path);
     Q_INVOKABLE void addDestinationFromPath(const QString &path);
     Q_INVOKABLE void copyDestinationPath(int sourceIndex);
     Q_INVOKABLE void syncDestinationPaths();
     Q_INVOKABLE void removeDestination(int index);
-    Q_INVOKABLE void renameDestination(int index, const QString &label);
     Q_INVOKABLE void startOffload();
     Q_INVOKABLE void cancelOffload();
     Q_INVOKABLE void exportTxt();
@@ -131,11 +129,12 @@ public:
     Q_INVOKABLE QString formatBytes(quint64 value) const;
     Q_INVOKABLE void applyDefaultsFromSettings();
     Q_INVOKABLE QString previewDestinationTemplate(const QString &basePath) const;
+    Q_INVOKABLE void runCompare(const QString &destPath, const QString &mode);
+    Q_INVOKABLE void renameDestination(int index, const QString &label);
 
 signals:
     void sourcePathChanged();
     void mediaScanningChanged();
-    void compareStateChanged();
     void projectNameChanged();
     void shootDateChanged();
     void cardNameChanged();
@@ -157,6 +156,7 @@ signals:
     void exportStateChanged();
     void canExportMhlChanged();
     void summaryChanged();
+    void compareStateChanged();
     void exportSucceeded(const QString &path);
     void exportFailed(const QString &message);
     void offloadFailed(const QString &message);
@@ -174,6 +174,7 @@ private:
     void updateTransferRate(quint64 bytesCompleted, quint64 bytesTotal);
     void resetTransferRate();
     static QString formatDuration(qint64 seconds);
+    static bool isValidShootDate(const QString &date);
     void setBusy(bool value);
     void setOverallProgress(double value);
     void setStatusText(const QString &value);
@@ -186,8 +187,6 @@ private:
     MediaListModel *m_mediaModel = nullptr;
     QString m_thumbCacheDir;
     bool m_mediaScanning = false;
-    bool m_comparing = false;
-    QString m_compareJson;
     QPointer<ThumbnailWorker> m_thumbWorker;
     QPointer<QThread> m_thumbThread;
     QString m_sourcePath;
@@ -226,4 +225,6 @@ private:
     QString m_csvExport;
     QString m_mhlExport;
     QVector<quint64> m_prevDestFilesCompleted;
+    bool m_comparing = false;
+    QString m_compareResultJson;
 };

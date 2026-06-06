@@ -73,6 +73,8 @@ ApplicationWindow {
             Platform.MenuSeparator {}
             Platform.MenuItem {
                 text: "Compare / Verify Folders…"
+                shortcut: "Ctrl+Shift+C"
+                enabled: !appController.busy && appController.sourcePath.length > 0
                 onTriggered: compareDialog.open()
             }
             Platform.MenuSeparator {}
@@ -103,6 +105,55 @@ ApplicationWindow {
     PreferencesDialog { id: preferencesDialog; anchors.centerIn: parent }
     CompareDialog { id: compareDialog; anchors.centerIn: parent }
 
+    // Toast banner for export success/failure and offload errors
+    Rectangle {
+        id: toast
+        z: 1000
+        width: Math.min(toastText.implicitWidth + 32, parent.width - 64)
+        height: 40
+        radius: 6
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 20
+        opacity: 0
+        visible: opacity > 0
+        property color toastBg: root.panel
+        property color toastBorder: root.line
+        color: toastBg
+        border.color: toastBorder
+        border.width: 1
+
+        Text {
+            id: toastText
+            anchors.centerIn: parent
+            font.family: root.sans
+            font.pixelSize: 12
+            color: root.ink
+        }
+
+        NumberAnimation on opacity {
+            id: toastFadeOut
+            to: 0
+            duration: 400
+            easing.type: Easing.InQuad
+        }
+        Timer {
+            id: toastTimer
+            interval: 3200
+            onTriggered: toastFadeOut.start()
+        }
+
+        function show(msg, isError) {
+            toastFadeOut.stop()
+            toastText.text = msg
+            toast.toastBg = isError ? root.bad : root.panelAlt
+            toast.toastBorder = isError ? root.bad : root.green
+            toastText.color = "#ffffff"
+            opacity = 1
+            toastTimer.restart()
+        }
+    }
+
     Connections {
         target: appController
         // Jump to the Activity Log when an offload starts so progress is visible.
@@ -122,14 +173,14 @@ ApplicationWindow {
             }
         }
         function onExportSucceeded(path) {
-            const name = path.split('/').pop().split('\\').pop()
-            toast.show("Exported " + name, false)
+            const name = path.split("/").pop().split("\\").pop()
+            toast.show("Exported: " + name, false)
         }
         function onExportFailed(message) {
-            toast.show(message, true)
+            toast.show("Export failed: " + message, true)
         }
         function onOffloadFailed(message) {
-            toast.show("Offload failed: " + message, true)
+            toast.show("Offload error: " + message, true)
         }
     }
 
@@ -338,18 +389,25 @@ ApplicationWindow {
                                         Layout.fillWidth: true
                                         spacing: 2
                                         TextInput {
+                                            id: destLabelInput
                                             Layout.fillWidth: true
-                                            text: model.label
+                                            text: model.label || ""
                                             color: ink
                                             font.family: root.sans
                                             font.pixelSize: 12
                                             font.bold: true
-                                            enabled: !appController.busy
                                             selectByMouse: true
-                                            clip: true
+                                            readOnly: appController.busy
                                             onEditingFinished: appController.renameDestination(index, text)
-                                            Accessible.role: Accessible.EditableText
-                                            Accessible.name: "Destination name, editable"
+                                            Accessible.name: "Destination label, " + (text || qsTr("Destination %1").arg(index + 1))
+                                            Accessible.description: "Click to rename this destination"
+                                            Text {
+                                                anchors.fill: parent
+                                                text: qsTr("Destination %1").arg(index + 1)
+                                                color: faint
+                                                font: parent.font
+                                                visible: parent.text.length === 0 && !parent.activeFocus
+                                            }
                                         }
                                         Text {
                                             text: model.path
@@ -404,9 +462,6 @@ ApplicationWindow {
                                         variant: "danger"
                                         enabled: !appController.busy
                                         onClicked: appController.removeDestination(index)
-                                        Accessible.name: "Remove destination"
-                                        ToolTip.visible: hovered && enabled
-                                        ToolTip.text: "Remove destination"
                                     }
                                 }
                             }
@@ -478,14 +533,6 @@ ApplicationWindow {
                         ToolTip.visible: hovered
                         ToolTip.text: "Replace last path component of all destinations with source folder name"
                     }
-                    QuietButton {
-                        Layout.fillWidth: true
-                        text: "Compare / Verify Folders…"
-                        enabled: !appController.busy
-                        onClicked: compareDialog.open()
-                        ToolTip.visible: hovered
-                        ToolTip.text: "Compare the source against another folder by path/size, modified time, or checksum"
-                    }
 
                     QuietButton {
                         Layout.fillWidth: true
@@ -502,6 +549,15 @@ ApplicationWindow {
                         variant: "danger"
                         visible: appController.busy
                         onClicked: appController.cancelOffload()
+                    }
+                    QuietButton {
+                        Layout.fillWidth: true
+                        text: "Compare / Verify…"
+                        enabled: !appController.busy && appController.sourcePath.length > 0
+                        Accessible.name: "Open folder comparison dialog"
+                        onClicked: compareDialog.open()
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Compare source against a destination to find differences"
                     }
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: line }
@@ -563,22 +619,32 @@ ApplicationWindow {
                                 maximumLength: 256
                                 onTextChanged: appController.projectName = text
                             }
-                            FieldLabel { text: "Shoot date" }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                FieldLabel { text: "Shoot date" }
+                                Text {
+                                    visible: appController.shootDate.length > 0 && !appController.shootDateValid
+                                    text: "Invalid date"
+                                    color: bad
+                                    font.family: root.sans
+                                    font.pixelSize: 10
+                                    Accessible.name: "Shoot date format is invalid, use YYYY-MM-DD"
+                                }
+                            }
                             DenseTextField {
                                 Layout.fillWidth: true
                                 text: appController.shootDate
                                 placeholderText: "YYYY-MM-DD"
                                 enabled: !appController.busy
                                 maximumLength: 10
-                                color: appController.shootDateValid ? root.ink : root.bad
                                 onTextChanged: appController.shootDate = text
-                            }
-                            Text {
-                                visible: !appController.shootDateValid
-                                text: "Use the format YYYY-MM-DD"
-                                color: root.bad
-                                font.family: root.sans
-                                font.pixelSize: 10
+                                // Highlight border in red when value is invalid
+                                background: Rectangle {
+                                    color: panelAlt
+                                    border.color: (appController.shootDate.length > 0 && !appController.shootDateValid) ? bad : line
+                                    radius: 4
+                                }
                             }
                             RowLayout {
                                 Layout.fillWidth: true
@@ -958,51 +1024,50 @@ ApplicationWindow {
                         font.pixelSize: 12
                         elide: Text.ElideMiddle
                     }
+                    // Transfer speed + ETA
                     Text {
                         visible: appController.busy && appController.transferSpeed.length > 0
-                        text: appController.etaText.length > 0
-                              ? appController.transferSpeed + "  ·  ETA " + appController.etaText
-                              : appController.transferSpeed
+                        text: appController.transferSpeed
+                              + (appController.etaText.length > 0 ? " · " + appController.etaText : "")
                         color: faint
                         font.family: root.mono
                         font.pixelSize: 11
-                        Accessible.name: appController.transferSpeed + " "
-                                         + (appController.etaText.length > 0
-                                            ? "estimated " + appController.etaText + " remaining" : "")
+                        Accessible.name: "Transfer speed " + appController.transferSpeed
                     }
                     StyledProgressBar {
-                        Layout.preferredWidth: 180
+                        Layout.preferredWidth: 160
                         from: 0
                         to: 1
                         value: appController.overallProgress
                         indeterminate: appController.busy && appController.statusText === "Scanning source..." && appController.overallProgress <= 0
                         visible: appController.busy || appController.overallProgress > 0
                     }
+                    // ffmpeg status badge
                     Rectangle {
-                        Layout.preferredHeight: 22
-                        Layout.preferredWidth: ffmpegBadgeText.implicitWidth + 24
+                        height: 22
+                        width: ffmpegBadgeText.implicitWidth + 16
                         radius: 11
-                        color: panelAlt
-                        border.color: appController.ffmpegAvailable ? green : warn
-                        Accessible.role: Accessible.StaticText
-                        Accessible.name: appController.ffmpegAvailable
-                                         ? "ffmpeg available; thumbnails and clip metadata enabled"
-                                         : "ffmpeg not found; thumbnails and clip metadata are disabled"
-                        Row {
+                        color: appController.ffmpegAvailable ? green : warn
+                        opacity: 0.85
+                        visible: true
+                        ToolTip.visible: ffmpegBadgeArea.containsMouse
+                        ToolTip.text: appController.ffmpegAvailable
+                            ? "ffmpeg is available — thumbnails enabled"
+                            : "ffmpeg not found — install it to enable thumbnails"
+                        MouseArea {
+                            id: ffmpegBadgeArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            acceptedButtons: Qt.NoButton
+                        }
+                        Text {
+                            id: ffmpegBadgeText
                             anchors.centerIn: parent
-                            spacing: 5
-                            Rectangle {
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: 7; height: 7; radius: 3.5
-                                color: appController.ffmpegAvailable ? green : warn
-                            }
-                            Text {
-                                id: ffmpegBadgeText
-                                text: appController.ffmpegAvailable ? "ffmpeg ready" : "ffmpeg missing"
-                                color: appController.ffmpegAvailable ? green : warn
-                                font.family: root.mono
-                                font.pixelSize: 10
-                            }
+                            text: appController.ffmpegAvailable ? "ffmpeg ✓" : "ffmpeg ✗"
+                            color: "#ffffff"
+                            font.family: root.mono
+                            font.pixelSize: 9
+                            font.bold: true
                         }
                     }
                     StyledComboBox {
@@ -1014,7 +1079,6 @@ ApplicationWindow {
                             themeController.preference = map[index]
                         }
                         font.pixelSize: 10
-                        Accessible.name: "Appearance theme"
                     }
                     QuietButton {
                         text: "Copy Log"
@@ -1028,46 +1092,6 @@ ApplicationWindow {
                     }
                 }
             }
-        }
-    }
-
-    // Transient export confirmation / error toast.
-    Rectangle {
-        id: toast
-        property string message: ""
-        property bool isError: false
-        function show(msg, err) {
-            toast.message = msg
-            toast.isError = err
-            toast.opacity = 1
-            toastTimer.restart()
-        }
-        z: 1000
-        anchors.top: parent.top
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.topMargin: 16
-        height: 40
-        width: toastText.implicitWidth + 32
-        radius: 6
-        color: panel
-        border.color: isError ? bad : green
-        border.width: 2
-        opacity: 0
-        visible: opacity > 0
-        Behavior on opacity { NumberAnimation { duration: 180 } }
-        Text {
-            id: toastText
-            anchors.centerIn: parent
-            text: toast.message
-            color: toast.isError ? bad : green
-            font.family: root.sans
-            font.pixelSize: 12
-            font.bold: true
-        }
-        Timer {
-            id: toastTimer
-            interval: 3500
-            onTriggered: toast.opacity = 0
         }
     }
 }

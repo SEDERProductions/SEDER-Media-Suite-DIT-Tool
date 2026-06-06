@@ -177,14 +177,12 @@ char *seder_format_breakdown(
     const char *ignore_patterns,
     uint8_t ignore_hidden_system);
 
-/* Compare source_path against dest_path. Returns a JSON report:
- * {"summary":{"matched","differing","missing","extra"},
- *  "entries":[{"rel_path","status"}]} where status is match /
- * missing_in_dest / extra_in_dest / size_mismatch / mtime_mismatch /
- * checksum_mismatch. `mode` is PATHSIZE / MTIME / CHECKSUM (case-insensitive).
- * `checksum_algorithm` may be NULL (defaults to BLAKE3) and is only used in
- * CHECKSUM mode. Heap-allocated; free with seder_string_free. NULL on null
- * or unreadable inputs. */
+/* Compare source_path against dest_path. mode: "path_size" | "mtime" |
+ * "checksum". checksum_algorithm: "BLAKE3" | "XXH3". ignore_patterns and
+ * ignore_hidden_system apply to the source walk only.
+ * Returns JSON: {"mode","source","dest","matched","differing",
+ * "missing_in_dest","extra_in_dest","entries":[{"path","status","detail?}]}.
+ * Heap-allocated; free with seder_string_free. NULL on error. */
 char *seder_compare_folders(
     const char *source_path,
     const char *dest_path,

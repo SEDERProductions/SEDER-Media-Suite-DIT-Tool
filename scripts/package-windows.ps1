@@ -41,39 +41,34 @@ cmake @ConfigureArgs
 cmake --build $BuildDir --config Release
 cmake --install $BuildDir --config Release
 
-# Bundle ffmpeg/ffprobe next to the app exe so thumbnails + clip metadata work
-# out of the box. The Rust core's bundle-aware discovery finds binaries beside
-# the executable, and the signtool loop below signs them with the rest.
-# Prefer a vendored $env:SEDER_FFMPEG_DIR (reproducible); otherwise download a
-# GPL static build (overridable via $env:SEDER_FFMPEG_WINDOWS_URL). Fail-soft
-# unless $env:SEDER_REQUIRE_FFMPEG -eq "1".
-$RequireFfmpeg = ($env:SEDER_REQUIRE_FFMPEG -eq "1")
-try {
-    $FfmpegSrc = $env:SEDER_FFMPEG_DIR
-    if ($FfmpegSrc -and (Test-Path (Join-Path $FfmpegSrc "ffmpeg.exe"))) {
-        Copy-Item (Join-Path $FfmpegSrc "ffmpeg.exe") (Join-Path $InstallDir "ffmpeg.exe") -Force
-        Copy-Item (Join-Path $FfmpegSrc "ffprobe.exe") (Join-Path $InstallDir "ffprobe.exe") -Force
-        Write-Host "Bundled ffmpeg/ffprobe from SEDER_FFMPEG_DIR"
-    } else {
-        $Url = if ($env:SEDER_FFMPEG_WINDOWS_URL) { $env:SEDER_FFMPEG_WINDOWS_URL } else { "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.zip" }
-        $Zip = Join-Path $env:TEMP "seder-ffmpeg.zip"
-        $Extract = Join-Path $env:TEMP "seder-ffmpeg-extract"
-        if (Test-Path $Extract) { Remove-Item -Recurse -Force $Extract }
-        Invoke-WebRequest -Uri $Url -OutFile $Zip -UseBasicParsing
-        Expand-Archive -Path $Zip -DestinationPath $Extract -Force
-        $ff = Get-ChildItem -Path $Extract -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-        $fp = Get-ChildItem -Path $Extract -Recurse -Filter ffprobe.exe | Select-Object -First 1
-        if ($ff -and $fp) {
-            Copy-Item $ff.FullName (Join-Path $InstallDir "ffmpeg.exe") -Force
-            Copy-Item $fp.FullName (Join-Path $InstallDir "ffprobe.exe") -Force
-            Write-Host "Bundled ffmpeg/ffprobe into $InstallDir"
-        } else {
-            throw "ffmpeg.exe/ffprobe.exe not found in downloaded archive"
+# Bundle ffmpeg/ffprobe for out-of-the-box thumbnail support.
+$FfmpegDir = if ($env:SEDER_FFMPEG_DIR) { $env:SEDER_FFMPEG_DIR } else { $null }
+if ($FfmpegDir -and (Test-Path $FfmpegDir)) {
+    Write-Host "[fetch-ffmpeg] Copying from SEDER_FFMPEG_DIR=$FfmpegDir"
+    foreach ($bin in @("ffmpeg.exe", "ffprobe.exe")) {
+        $src = Join-Path $FfmpegDir $bin
+        if (Test-Path $src) {
+            Copy-Item $src (Join-Path $InstallDir $bin)
         }
     }
-} catch {
-    if ($RequireFfmpeg) { throw }
-    Write-Warning "Could not bundle ffmpeg ($_); continuing. The app still works if the host has ffmpeg on PATH."
+} else {
+    Write-Host "[fetch-ffmpeg] Downloading Windows ffmpeg/ffprobe (GPL static)..."
+    $ffUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+    $tmp = New-TemporaryFile | ForEach-Object { $_.DirectoryName + "\" + [System.IO.Path]::GetRandomFileName() }
+    New-Item -ItemType Directory $tmp | Out-Null
+    try {
+        $zipPath = "$tmp\ffmpeg.zip"
+        Invoke-WebRequest -Uri $ffUrl -OutFile $zipPath -ErrorAction SilentlyContinue
+        Expand-Archive -Path $zipPath -DestinationPath $tmp -ErrorAction SilentlyContinue
+        foreach ($bin in @("ffmpeg.exe", "ffprobe.exe")) {
+            $found = Get-ChildItem $tmp -Recurse -Filter $bin -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { Copy-Item $found.FullName (Join-Path $InstallDir $bin) }
+        }
+    } catch {
+        Write-Warning "[fetch-ffmpeg] Could not download ffmpeg: $_"
+    } finally {
+        Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+    }
 }
 
 # Ad-hoc self-signed Authenticode signature for SEDER Productions identity.

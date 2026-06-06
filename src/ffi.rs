@@ -1050,6 +1050,67 @@ unsafe fn nullable_cstr_to_option(ptr: *const c_char) -> Option<String> {
     Some(CStr::from_ptr(ptr).to_string_lossy().into_owned())
 }
 
+/// Compare `source_path` against `dest_path` using `mode` ("path_size",
+/// "mtime", or "checksum") and returns a JSON report. `checksum_algorithm`
+/// may be "BLAKE3" or "XXH3" (defaults to BLAKE3). `ignore_patterns` and
+/// `ignore_hidden_system` apply to the source walk only. The returned string
+/// is heap-allocated; free with `seder_string_free`. Returns NULL on error.
+#[no_mangle]
+pub unsafe extern "C" fn seder_compare_folders(
+    source_path: *const c_char,
+    dest_path: *const c_char,
+    mode: *const c_char,
+    checksum_algorithm: *const c_char,
+    ignore_patterns: *const c_char,
+    ignore_hidden_system: u8,
+) -> *mut c_char {
+    let result = catch_unwind(|| {
+        if source_path.is_null() || dest_path.is_null() {
+            return std::ptr::null_mut::<c_char>();
+        }
+        let source = unsafe { cstr_to_string(source_path) };
+        let dest = unsafe { cstr_to_string(dest_path) };
+        let mode_str = if mode.is_null() {
+            "path_size".to_string()
+        } else {
+            unsafe { cstr_to_string(mode) }
+        };
+        let algo_str = if checksum_algorithm.is_null() {
+            "BLAKE3".to_string()
+        } else {
+            unsafe { cstr_to_string(checksum_algorithm) }
+        };
+        let algorithm = ChecksumAlgo::parse(&algo_str).unwrap_or(ChecksumAlgo::Blake3);
+        let patterns: Vec<String> = unsafe { cstr_to_string(ignore_patterns) }
+            .split([',', '\n', '\r'])
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let options = OffloadOptions {
+            ignore_hidden_system: ignore_hidden_system != 0,
+            ignore_patterns: patterns,
+            ..OffloadOptions::default()
+        };
+        let compare_mode = CompareMode::from_str(&mode_str);
+        match compare(
+            std::path::Path::new(&source),
+            std::path::Path::new(&dest),
+            compare_mode,
+            &options,
+            algorithm,
+        ) {
+            Ok(report) => match serde_json::to_string(&report) {
+                Ok(s) => CString::new(s)
+                    .map(|c| c.into_raw())
+                    .unwrap_or(std::ptr::null_mut()),
+                Err(_) => std::ptr::null_mut(),
+            },
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+    result.unwrap_or(std::ptr::null_mut())
+}
+
 fn chrono_nowish() -> String {
     // Civil date from Unix timestamp using Howard Hinnant's algorithm
     // https://howardhinnant.github.io/date_algorithms.html
