@@ -38,12 +38,8 @@ Item {
 
                 OffloadView {}
 
-                EmptyState {
-                    iconName: "grid"
-                    title: "Media Library"
-                    subtitle: "Browse offloaded clips with thumbnails, codec, resolution, frame "
-                        + "rate and timecode metadata. Arriving in the next update."
-                }
+                LibraryView {}
+
                 EmptyState {
                     iconName: "file-text"
                     title: "Reports"

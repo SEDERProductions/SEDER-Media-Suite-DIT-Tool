@@ -2,6 +2,7 @@
 #include "DestinationListModel.h"
 #include "SettingsStore.h"
 #include "ThemeController.h"
+#include "ThumbnailProvider.h"
 
 #include <QApplication>
 #include <QObject>
@@ -21,6 +22,7 @@ int main(int argc, char *argv[])
     AppController appController(&settingsStore);
 
     QQmlApplicationEngine engine;
+    engine.addImageProvider(QStringLiteral("clipthumb"), new ThumbnailProvider);
     engine.rootContext()->setContextProperty(QStringLiteral("appController"), &appController);
     engine.rootContext()->setContextProperty(QStringLiteral("themeController"), &themeController);
     engine.rootContext()->setContextProperty(QStringLiteral("settingsStore"), &settingsStore);

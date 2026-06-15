@@ -135,6 +135,8 @@ qt_add_executable(seder-media-suite-dit-qt
     WIN32
     cpp/AppController.cpp
     cpp/AppController.h
+    cpp/ClipLibraryModel.cpp
+    cpp/ClipLibraryModel.h
     cpp/DestinationItem.cpp
     cpp/DestinationItem.h
     cpp/DestinationListModel.cpp
@@ -145,6 +147,8 @@ qt_add_executable(seder-media-suite-dit-qt
     cpp/SettingsStore.h
     cpp/ThemeController.cpp
     cpp/ThemeController.h
+    cpp/ThumbnailProvider.cpp
+    cpp/ThumbnailProvider.h
     cpp/main.cpp
     cpp/seder_ffi.h
     ${SEDER_APP_PLATFORM_SOURCES}
@@ -181,6 +185,10 @@ qt_add_qml_module(seder-media-suite-dit-qt
         qml/StatusBar.qml
         qml/AppShell.qml
         qml/OffloadView.qml
+        qml/MetaRow.qml
+        qml/ClipCard.qml
+        qml/InspectorPanel.qml
+        qml/LibraryView.qml
 )
 
 target_include_directories(seder-media-suite-dit-qt PRIVATE cpp)
@@ -231,6 +239,8 @@ install(SCRIPT ${seder_deploy_script})
 if(BUILD_TESTING)
     qt_add_executable(dit_model_tests
         tests/dit_model_tests.cpp
+        cpp/ClipLibraryModel.cpp
+        cpp/ClipLibraryModel.h
         cpp/DestinationItem.cpp
         cpp/DestinationItem.h
         cpp/DestinationListModel.cpp

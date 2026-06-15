@@ -7,10 +7,14 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QClipboard>
+#include <QPointer>
 #include <QDateTime>
 #include <QDir>
 #include <QSaveFile>
 #include <QThread>
+#include <QThreadPool>
+#include <QRunnable>
+#include <QCoreApplication>
 #include <QRegularExpression>
 #include <functional>
 
@@ -30,6 +34,7 @@ AppController::AppController(SettingsStore *settings, QObject *parent)
     : QObject(parent)
     , m_settings(settings)
     , m_destinationModel(new DestinationListModel(this))
+    , m_clipLibrary(new ClipLibraryModel(this))
 {
     if (m_settings) {
         m_ignorePatterns = m_settings->defaultIgnorePatterns();
@@ -59,6 +64,7 @@ QString AppController::appVersion() const
 QString AppController::sourcePath() const { return m_sourcePath; }
 void AppController::setSourcePath(const QString &value) { setIfChanged(m_sourcePath, value, [this] { emit sourcePathChanged(); }); }
 DestinationListModel *AppController::destinationModel() const { return m_destinationModel; }
+ClipLibraryModel *AppController::clipLibrary() const { return m_clipLibrary; }
 QString AppController::projectName() const { return m_projectName; }
 void AppController::setProjectName(const QString &value) { setIfChanged(m_projectName, value.trimmed(), [this] { emit projectNameChanged(); }); }
 QString AppController::shootDate() const { return m_shootDate; }
@@ -550,6 +556,7 @@ void AppController::startOffload()
         m_aleExport = report.aleExport;
         m_finalStatus = report.finalStatus;
         m_verificationPerformed = report.verificationPerformed;
+        m_clipLibrary->loadFromMetadataJson(m_metadataJsonExport.toUtf8(), m_sourcePath);
         emit exportStateChanged();
         emit canExportMhlChanged();
         emit canExportMetadataJsonChanged();
@@ -632,6 +639,39 @@ void AppController::exportAle()
     writeExport(tr("Export ALE (Avid Log Exchange)"),
                 QStringLiteral("seder-dit-report.ale"),
                 m_aleExport);
+}
+
+void AppController::generateProxy(const QString &relPath, const QString &preset)
+{
+    if (m_sourcePath.isEmpty() || relPath.isEmpty()) {
+        appendLog(QStringLiteral("Proxy generation needs a source and a clip."), LogSeverity::Warn);
+        return;
+    }
+    if (!ffmpegAvailable()) {
+        appendLog(QStringLiteral("Proxy generation needs ffmpeg, which was not found."), LogSeverity::Warn);
+        return;
+    }
+    const QString media = QDir(m_sourcePath).filePath(relPath);
+    const QString proxiesRoot = QDir(m_sourcePath).filePath(QStringLiteral("Proxies"));
+    const QString normalizedPreset = preset.trimmed().isEmpty() ? QStringLiteral("PRORES") : preset.trimmed();
+    appendLog(QStringLiteral("Generating %1 proxy for %2…").arg(normalizedPreset, relPath));
+
+    QPointer<AppController> self(this);
+    QThreadPool::globalInstance()->start(QRunnable::create([self, media, proxiesRoot, normalizedPreset, relPath]() {
+        const QByteArray mediaB = media.toUtf8();
+        const QByteArray rootB = proxiesRoot.toUtf8();
+        const QByteArray presetB = normalizedPreset.toUtf8();
+        char *out = seder_generate_proxy(mediaB.constData(), rootB.constData(), presetB.constData());
+        const QString result = out ? QString::fromUtf8(out) : QString();
+        if (out) seder_string_free(out);
+        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, result, relPath]() {
+            if (!self) return;
+            if (result.isEmpty())
+                self->appendLog(QStringLiteral("Proxy generation failed for %1.").arg(relPath), LogSeverity::Error);
+            else
+                self->appendLog(QStringLiteral("Proxy written: %1").arg(result));
+        }, Qt::QueuedConnection);
+    }));
 }
 
 QString AppController::formatBytes(quint64 value) const

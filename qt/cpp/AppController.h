@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ClipLibraryModel.h"
 #include "DestinationListModel.h"
 #include "DitOffloadWorker.h"
 #include "ThemeController.h"
@@ -13,6 +14,7 @@ class AppController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString sourcePath READ sourcePath WRITE setSourcePath NOTIFY sourcePathChanged)
     Q_PROPERTY(DestinationListModel *destinationModel READ destinationModel CONSTANT)
+    Q_PROPERTY(ClipLibraryModel *clipLibrary READ clipLibrary CONSTANT)
     Q_PROPERTY(QString projectName READ projectName WRITE setProjectName NOTIFY projectNameChanged)
     Q_PROPERTY(QString shootDate READ shootDate WRITE setShootDate NOTIFY shootDateChanged)
     Q_PROPERTY(QString cardName READ cardName WRITE setCardName NOTIFY cardNameChanged)
@@ -49,6 +51,7 @@ public:
     QString sourcePath() const;
     void setSourcePath(const QString &value);
     DestinationListModel *destinationModel() const;
+    ClipLibraryModel *clipLibrary() const;
     QString projectName() const;
     void setProjectName(const QString &value);
     QString shootDate() const;
@@ -101,6 +104,9 @@ public:
     Q_INVOKABLE void exportMhl();
     Q_INVOKABLE void exportMetadataJson();
     Q_INVOKABLE void exportAle();
+    // Generate a proxy for one library clip (preset: PRORES / H264 / DNXHR).
+    // Runs ffmpeg off the UI thread; logs the result. No-op without ffmpeg.
+    Q_INVOKABLE void generateProxy(const QString &relPath, const QString &preset);
     Q_INVOKABLE void clearLog();
     Q_INVOKABLE void copyLog();
     Q_INVOKABLE QString formatBytes(quint64 value) const;
@@ -147,6 +153,7 @@ private:
 
     SettingsStore *m_settings = nullptr;
     DestinationListModel *m_destinationModel = nullptr;
+    ClipLibraryModel *m_clipLibrary = nullptr;
     QString m_sourcePath;
     QString m_projectName;
     QString m_shootDate;
