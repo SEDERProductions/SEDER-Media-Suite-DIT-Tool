@@ -54,6 +54,29 @@ every direction.
 - New `offload::volume::is_ltfs_volume` — parses /proc/mounts on
   Linux, `mount` on macOS, PowerShell `Get-Volume` on Windows.
 
+### Interface redesign (Adobe-grade, panel-based)
+- Token-driven design system: a single QML `Theme` singleton replaces the
+  warm palette that was previously duplicated inline in every component,
+  expanded into a full tonal ramp with spacing, radii, type, elevation and
+  motion tokens. The SEDER warm identity is preserved.
+- Scalable, themeable vector icon set (`Icon`, built on `QtQuick.Shapes`)
+  replaces the previous unicode glyphs; new component primitives (`Panel`,
+  `IconButton`, `StatusPill`, `SegmentedControl`, `Divider`, `EmptyState`).
+- New application shell: a top `HeaderBar`, a left `NavRail` workspace
+  switcher (Offload / Library / Reports / Queue), a bottom transport
+  `StatusBar`, and resizable `SplitView` panels.
+- Media Library (`LibraryView`): a searchable clip grid with thumbnails and
+  a Clip Inspector showing codec, resolution, frame rate, duration,
+  timecode, audio, color space and hash. Backed by a new `ClipLibraryModel`
+  that parses the existing metadata JSON (no new FFI) and an async,
+  disk-cached `clipthumb` image provider over `seder_extract_thumbnail`.
+  Proxy generation (ProRes / H.264 / DNxHR) runs off the UI thread.
+- Job Queue (`JobQueueView` + `JobQueueModel`): stage multiple offloads and
+  run them serially, ShotPut style. "Start Offload" still runs immediately;
+  "Add to Queue" stages a job. Existing single-offload behavior is preserved.
+- Reports (`ReportsView`): preview TXT / CSV / MHL / ALE / JSON in-app with
+  copy and save.
+
 ### UI / UX
 - New `SettingsStore` (QSettings-backed) persists window geometry,
   recent source / destination paths (up to 10 each), last metadata,

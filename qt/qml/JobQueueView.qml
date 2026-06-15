@@ -35,7 +35,7 @@ Item {
                 QuietButton {
                     text: "Clear Finished"
                     iconName: "trash"
-                    enabled: appController.jobQueue.count > appController.jobQueue.activeCount
+                    enabled: !appController.busy && appController.jobQueue.count > appController.jobQueue.activeCount
                     onClicked: appController.jobQueue.clearFinished()
                 }
                 QuietButton {

@@ -100,7 +100,7 @@ Rectangle {
         IconButton {
             iconName: "x"
             variant: "danger"
-            enabled: row.state !== 1
+            enabled: !row.busy && row.state !== 1
             Accessible.name: "Remove job"
             onClicked: row.removeRequested()
         }
