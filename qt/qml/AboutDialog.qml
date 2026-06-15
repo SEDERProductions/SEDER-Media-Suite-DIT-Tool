@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import SederDit
 
 Dialog {
     id: aboutDialog
@@ -8,73 +9,71 @@ Dialog {
     title: "About SEDER Media Suite DIT"
     standardButtons: Dialog.Close
 
-    readonly property bool dark: themeController.dark
-    readonly property color ink: dark ? "#ece6d9" : "#16140f"
-    readonly property color muted: dark ? "#ada596" : "#4a4438"
-    readonly property color faint: dark ? "#716a5f" : "#7a7363"
-    readonly property color panel: dark ? "#1f1d1a" : "#f8f4ea"
-    readonly property color link: dark ? "#4cab7e" : "#1f7a4d"
-    readonly property string sans: "Manrope, Helvetica Neue, Helvetica, Arial, sans-serif"
-    readonly property string mono: "Menlo, Consolas, monospace"
-
     background: Rectangle {
-        color: panel
-        border.color: dark ? "#3a352e" : "#d6cfbe"
-        radius: 4
+        color: Theme.surface.panel
+        border.color: Theme.border.strong
+        radius: Theme.radiusMd
     }
 
     ColumnLayout {
-        spacing: 12
-        width: 420
+        spacing: Theme.space3
+        width: 440
 
-        Text {
-            text: "SEDER Media Suite DIT"
-            color: ink
-            font.family: sans
-            font.pixelSize: 18
-            font.bold: true
+        RowLayout {
+            spacing: Theme.space3
+            Rectangle {
+                Layout.preferredWidth: 44
+                Layout.preferredHeight: 44
+                radius: Theme.radiusMd
+                color: Theme.accent.brand
+                Icon { anchors.centerIn: parent; name: "layers"; size: 24; color: Theme.text.onAccent; stroke: 2 }
+            }
+            ColumnLayout {
+                spacing: 2
+                Text {
+                    text: "SEDER Media Suite DIT"
+                    color: Theme.text.hi
+                    font.family: Theme.fontSans
+                    font.pixelSize: Theme.textTitle
+                    font.bold: true
+                }
+                Text {
+                    text: "Version " + (appController.appVersion || "")
+                    color: Theme.text.mid
+                    font.family: Theme.fontMono
+                    font.pixelSize: Theme.textBody
+                }
+            }
         }
 
-        Text {
-            text: "Version " + (appController.appVersion || "")
-            color: muted
-            font.family: mono
-            font.pixelSize: 12
-        }
+        Divider { Layout.fillWidth: true }
 
         Text {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: "Local-first DIT folder verification for source and destination offloads. "
-                + "Qt 6/QML interface with a Rust core for recursive scans, BLAKE3 checksums, "
-                + "and TXT, CSV, and ASC MHL report exports."
-            color: muted
-            font.family: sans
-            font.pixelSize: 12
+            text: "Local-first DIT offload verification for source and destination transfers. "
+                + "A Qt 6 / QML interface over a Rust core for recursive scans, multi-algorithm "
+                + "checksums, multi-destination copies, clip metadata, and TXT / CSV / MHL / ALE reports."
+            color: Theme.text.mid
+            font.family: Theme.fontSans
+            font.pixelSize: Theme.textBody
         }
 
         Text {
-            text: "© Seder Productions"
-            color: faint
-            font.family: sans
-            font.pixelSize: 11
-        }
-
-        Text {
-            text: "Released under GPL-3.0-only."
-            color: faint
-            font.family: sans
-            font.pixelSize: 11
+            text: "© Seder Productions · Released under GPL-3.0-only."
+            color: Theme.text.faint
+            font.family: Theme.fontSans
+            font.pixelSize: Theme.textMeta
         }
 
         Text {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             text: "<a href=\"https://github.com/sederproductions/seder-dit-tool\">github.com/sederproductions/seder-dit-tool</a>"
-            color: link
-            linkColor: link
-            font.family: sans
-            font.pixelSize: 12
+            color: Theme.accent.success
+            linkColor: Theme.accent.success
+            font.family: Theme.fontSans
+            font.pixelSize: Theme.textBody
             onLinkActivated: (url) => Qt.openUrlExternally(url)
             MouseArea {
                 anchors.fill: parent

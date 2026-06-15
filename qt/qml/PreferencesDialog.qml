@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import SederDit
 
 Dialog {
     id: prefsDialog
@@ -8,39 +9,36 @@ Dialog {
     title: "Preferences"
     standardButtons: Dialog.Close
 
-    readonly property bool dark: themeController.dark
-    readonly property color ink: dark ? "#ece6d9" : "#16140f"
-    readonly property color muted: dark ? "#ada596" : "#4a4438"
-    readonly property color faint: dark ? "#716a5f" : "#7a7363"
-    readonly property color panel: dark ? "#1f1d1a" : "#f8f4ea"
-    readonly property color line: dark ? "#3a352e" : "#d6cfbe"
-    readonly property color warn: dark ? "#c99746" : "#9a6a16"
-    readonly property string sans: "Manrope, Helvetica Neue, Helvetica, Arial, sans-serif"
-    readonly property string mono: "Menlo, Consolas, monospace"
-
     background: Rectangle {
-        color: panel
-        border.color: line
-        radius: 4
+        color: Theme.surface.panel
+        border.color: Theme.border.strong
+        radius: Theme.radiusMd
+    }
+
+    component SectionTitle: Text {
+        color: Theme.text.hi
+        font.family: Theme.fontSans
+        font.pixelSize: Theme.textLabel
+        font.bold: true
+    }
+    component HelpText: Text {
+        Layout.fillWidth: true
+        wrapMode: Text.WordWrap
+        color: Theme.text.faint
+        font.family: Theme.fontSans
+        font.pixelSize: Theme.textMeta
     }
 
     ColumnLayout {
-        spacing: 14
-        width: 480
+        spacing: Theme.space4
+        width: 500
 
-        Text {
-            text: "Appearance"
-            color: ink
-            font.family: sans
-            font.pixelSize: 13
-            font.bold: true
-        }
-
+        SectionTitle { text: "Appearance" }
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: Theme.space2
             FieldLabel { text: "Theme" }
-            ComboBox {
+            StyledComboBox {
                 Layout.fillWidth: true
                 model: ["system", "light", "dark"]
                 currentIndex: Math.max(0, model.indexOf(themeController.preference))
@@ -48,24 +46,10 @@ Dialog {
             }
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: line }
+        Divider { Layout.fillWidth: true }
 
-        Text {
-            text: "Default offload options"
-            color: ink
-            font.family: sans
-            font.pixelSize: 13
-            font.bold: true
-        }
-
-        Text {
-            text: "These values are used the next time the app starts."
-            color: faint
-            font.family: sans
-            font.pixelSize: 11
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
+        SectionTitle { text: "Default offload options" }
+        HelpText { text: "These values are used the next time the app starts." }
 
         StyledCheckBox {
             text: "Ignore hidden / system files by default"
@@ -92,20 +76,20 @@ Dialog {
             Layout.fillWidth: true
             spacing: 4
             FieldLabel { text: "Default ignore patterns (comma-separated)" }
-            TextField {
+            DenseTextField {
                 Layout.fillWidth: true
                 text: settingsStore.defaultIgnorePatterns
-                font.family: mono
-                font.pixelSize: 11
+                font.family: Theme.fontMono
+                font.pixelSize: Theme.textMeta
                 onEditingFinished: settingsStore.defaultIgnorePatterns = text
             }
         }
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: Theme.space2
             FieldLabel { text: "Default checksum algorithm" }
-            ComboBox {
+            StyledComboBox {
                 id: algoCombo
                 readonly property var algos: ["BLAKE3", "MD5", "SHA1", "XXH3-64", "XXH3-128"]
                 Layout.fillWidth: true
@@ -114,42 +98,25 @@ Dialog {
                 onActivated: settingsStore.defaultChecksumAlgorithm = algos[currentIndex]
             }
         }
-
-        Text {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
+        HelpText {
             text: "BLAKE3 (default) is fast and cryptographic. XXH3-64 is fastest and good for "
                 + "in-house verification. MD5 / SHA-1 are slower but interoperate with legacy DIT pipelines."
-            color: faint
-            font.family: sans
-            font.pixelSize: 11
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: line }
+        Divider { Layout.fillWidth: true }
 
-        Text {
-            text: "Destination subfolder template"
-            color: ink
-            font.family: sans
-            font.pixelSize: 13
-            font.bold: true
-        }
-        Text {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
+        SectionTitle { text: "Destination subfolder template" }
+        HelpText {
             text: "Optional. When set, picking a destination folder will create and use the "
                 + "expanded subfolder underneath it. Tokens: {project}, {date}, {card}, {camera}."
-            color: faint
-            font.family: sans
-            font.pixelSize: 11
         }
-        TextField {
+        DenseTextField {
             id: templateField
             Layout.fillWidth: true
             text: settingsStore.destinationTemplate
             placeholderText: "{project}/{date}/{card}"
-            font.family: mono
-            font.pixelSize: 11
+            font.family: Theme.fontMono
+            font.pixelSize: Theme.textMeta
             onEditingFinished: settingsStore.destinationTemplate = text
         }
         Text {
@@ -159,20 +126,14 @@ Dialog {
             text: "Preview: " + (settingsStore.destinationTemplate.length > 0
                 ? appController.previewDestinationTemplate("")
                 : "(no template — destination folder used as-is)")
-            color: muted
-            font.family: mono
-            font.pixelSize: 11
+            color: Theme.text.mid
+            font.family: Theme.fontMono
+            font.pixelSize: Theme.textMeta
         }
 
-        Rectangle { Layout.fillWidth: true; height: 1; color: line }
+        Divider { Layout.fillWidth: true }
 
-        Text {
-            text: "Clip metadata extraction"
-            color: ink
-            font.family: sans
-            font.pixelSize: 13
-            font.bold: true
-        }
+        SectionTitle { text: "Clip metadata extraction" }
         StyledCheckBox {
             text: "Extract clip metadata with ffprobe during scan"
             enabled: appController.ffprobeAvailable
@@ -184,19 +145,19 @@ Dialog {
             wrapMode: Text.WordWrap
             text: appController.ffprobeAvailable
                 ? "ffprobe was found on this system. Extracting metadata makes scans slower but "
-                  + "produces a JSON sidecar describing codec, resolution, frame rate, duration, "
-                  + "audio, color space, and timecode for each clip."
+                  + "populates the Library and report sidecars with codec, resolution, frame rate, "
+                  + "duration, audio, color space, and timecode for each clip."
                 : "ffprobe was not found on this system. Install FFmpeg (brew install ffmpeg, "
                   + "apt-get install ffmpeg, or https://www.ffmpeg.org/download.html) and relaunch "
                   + "the app to enable this option."
-            color: appController.ffprobeAvailable ? faint : warn
-            font.family: sans
-            font.pixelSize: 11
+            color: appController.ffprobeAvailable ? Theme.text.faint : Theme.accent.warning
+            font.family: Theme.fontSans
+            font.pixelSize: Theme.textMeta
         }
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: Theme.space2
             Item { Layout.fillWidth: true }
             QuietButton {
                 text: "Reset to factory defaults"
@@ -204,6 +165,7 @@ Dialog {
             }
             QuietButton {
                 text: "Apply to current session"
+                variant: "primary"
                 onClicked: {
                     appController.applyDefaultsFromSettings()
                     prefsDialog.close()

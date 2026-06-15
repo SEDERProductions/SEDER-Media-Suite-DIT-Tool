@@ -150,11 +150,22 @@ qt_add_executable(seder-media-suite-dit-qt
     ${SEDER_APP_PLATFORM_SOURCES}
 )
 
+set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
 qt_add_qml_module(seder-media-suite-dit-qt
     URI SederDit
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/Theme.qml
+        qml/Format.js
+        qml/Icon.qml
+        qml/Divider.qml
+        qml/IconButton.qml
+        qml/StatusPill.qml
+        qml/SegmentedControl.qml
+        qml/EmptyState.qml
+        qml/Panel.qml
         qml/MetaLabel.qml
         qml/FieldLabel.qml
         qml/DenseTextField.qml
@@ -165,6 +176,11 @@ qt_add_qml_module(seder-media-suite-dit-qt
         qml/PathPicker.qml
         qml/AboutDialog.qml
         qml/PreferencesDialog.qml
+        qml/HeaderBar.qml
+        qml/NavRail.qml
+        qml/StatusBar.qml
+        qml/AppShell.qml
+        qml/OffloadView.qml
 )
 
 target_include_directories(seder-media-suite-dit-qt PRIVATE cpp)

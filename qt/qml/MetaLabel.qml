@@ -1,12 +1,10 @@
 import QtQuick
+import SederDit
 
 Text {
-    readonly property bool dark: themeController.dark
-    readonly property color faint: dark ? "#716a5f" : "#7a7363"
-    readonly property string mono: "Menlo, Consolas, monospace"
-
-    color: faint
-    font.family: mono
-    font.pixelSize: 10
+    color: Theme.text.faint
+    font.family: Theme.fontMono
+    font.pixelSize: Theme.textCaption
+    font.letterSpacing: 0.6
     font.capitalization: Font.AllUppercase
 }
