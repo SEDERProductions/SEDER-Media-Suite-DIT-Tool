@@ -3,6 +3,7 @@
 #include "ClipLibraryModel.h"
 #include "DestinationListModel.h"
 #include "DitOffloadWorker.h"
+#include "JobQueueModel.h"
 #include "ThemeController.h"
 
 #include <QObject>
@@ -15,6 +16,12 @@ class AppController final : public QObject {
     Q_PROPERTY(QString sourcePath READ sourcePath WRITE setSourcePath NOTIFY sourcePathChanged)
     Q_PROPERTY(DestinationListModel *destinationModel READ destinationModel CONSTANT)
     Q_PROPERTY(ClipLibraryModel *clipLibrary READ clipLibrary CONSTANT)
+    Q_PROPERTY(JobQueueModel *jobQueue READ jobQueue CONSTANT)
+    Q_PROPERTY(QString reportTxt READ reportTxt NOTIFY exportStateChanged)
+    Q_PROPERTY(QString reportCsv READ reportCsv NOTIFY exportStateChanged)
+    Q_PROPERTY(QString reportMhl READ reportMhl NOTIFY exportStateChanged)
+    Q_PROPERTY(QString reportAle READ reportAle NOTIFY exportStateChanged)
+    Q_PROPERTY(QString reportMetadataJson READ reportMetadataJson NOTIFY exportStateChanged)
     Q_PROPERTY(QString projectName READ projectName WRITE setProjectName NOTIFY projectNameChanged)
     Q_PROPERTY(QString shootDate READ shootDate WRITE setShootDate NOTIFY shootDateChanged)
     Q_PROPERTY(QString cardName READ cardName WRITE setCardName NOTIFY cardNameChanged)
@@ -52,6 +59,12 @@ public:
     void setSourcePath(const QString &value);
     DestinationListModel *destinationModel() const;
     ClipLibraryModel *clipLibrary() const;
+    JobQueueModel *jobQueue() const;
+    QString reportTxt() const;
+    QString reportCsv() const;
+    QString reportMhl() const;
+    QString reportAle() const;
+    QString reportMetadataJson() const;
     QString projectName() const;
     void setProjectName(const QString &value);
     QString shootDate() const;
@@ -98,7 +111,12 @@ public:
     Q_INVOKABLE void syncDestinationPaths();
     Q_INVOKABLE void removeDestination(int index);
     Q_INVOKABLE void startOffload();
+    // Stage the current configuration as a queued job without starting it.
+    Q_INVOKABLE void enqueueCurrent();
+    // Start running the queue if nothing is currently running.
+    Q_INVOKABLE void runQueue();
     Q_INVOKABLE void cancelOffload();
+    Q_INVOKABLE void copyText(const QString &text);
     Q_INVOKABLE void exportTxt();
     Q_INVOKABLE void exportCsv();
     Q_INVOKABLE void exportMhl();
@@ -144,6 +162,10 @@ public:
     };
 private:
     void appendLog(const QString &line, LogSeverity severity = LogSeverity::Info);
+    bool buildRequestFromCurrent(OffloadRequestData &out);
+    void runQueueIfIdle();
+    void startJob(int jobIndex);
+    void runRequest(const OffloadRequestData &request, int jobIndex);
     void setBusy(bool value);
     void setOverallProgress(double value);
     void setStatusText(const QString &value);
@@ -154,6 +176,8 @@ private:
     SettingsStore *m_settings = nullptr;
     DestinationListModel *m_destinationModel = nullptr;
     ClipLibraryModel *m_clipLibrary = nullptr;
+    JobQueueModel *m_jobQueue = nullptr;
+    int m_runningJobIndex = -1;
     QString m_sourcePath;
     QString m_projectName;
     QString m_shootDate;

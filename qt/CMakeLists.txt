@@ -143,6 +143,8 @@ qt_add_executable(seder-media-suite-dit-qt
     cpp/DestinationListModel.h
     cpp/DitOffloadWorker.cpp
     cpp/DitOffloadWorker.h
+    cpp/JobQueueModel.cpp
+    cpp/JobQueueModel.h
     cpp/SettingsStore.cpp
     cpp/SettingsStore.h
     cpp/ThemeController.cpp
@@ -189,6 +191,9 @@ qt_add_qml_module(seder-media-suite-dit-qt
         qml/ClipCard.qml
         qml/InspectorPanel.qml
         qml/LibraryView.qml
+        qml/JobRow.qml
+        qml/JobQueueView.qml
+        qml/ReportsView.qml
 )
 
 target_include_directories(seder-media-suite-dit-qt PRIVATE cpp)
@@ -245,6 +250,8 @@ if(BUILD_TESTING)
         cpp/DestinationItem.h
         cpp/DestinationListModel.cpp
         cpp/DestinationListModel.h
+        cpp/JobQueueModel.cpp
+        cpp/JobQueueModel.h
         cpp/seder_ffi.h
     )
     target_include_directories(dit_model_tests PRIVATE cpp)

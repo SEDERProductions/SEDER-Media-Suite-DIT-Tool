@@ -2,6 +2,7 @@
 #include "ClipLibraryModel.h"
 #include "DestinationItem.h"
 #include "DestinationListModel.h"
+#include "JobQueueModel.h"
 
 class DitModelTests : public QObject {
     Q_OBJECT
@@ -13,7 +14,21 @@ private slots:
     void destinationListModelEmitsDataChanged();
     void clipLibraryParsesMetadataJson();
     void clipLibraryFiltersAndClears();
+    void jobQueueEnqueueRunAdvance();
+    void jobQueueReorderAndClear();
 };
+
+static OffloadRequestData makeRequest(const QString &source, int destCount)
+{
+    OffloadRequestData r;
+    r.sourcePath = source;
+    for (int i = 0; i < destCount; ++i) {
+        DestinationRequest dr;
+        dr.path = QStringLiteral("%1/dest%2").arg(source).arg(i);
+        r.destinations.append(dr);
+    }
+    return r;
+}
 
 void DitModelTests::destinationItemStateChanges()
 {
@@ -143,6 +158,52 @@ void DitModelTests::clipLibraryFiltersAndClears()
 
     model.loadFromMetadataJson(QByteArray(), QString());
     QCOMPARE(model.count(), 0);
+}
+
+void DitModelTests::jobQueueEnqueueRunAdvance()
+{
+    JobQueueModel queue;
+    QCOMPARE(queue.count(), 0);
+    QCOMPARE(queue.nextQueuedIndex(), -1);
+
+    const int a = queue.enqueue(makeRequest(QStringLiteral("/cards/A"), 2), QStringLiteral("A"));
+    const int b = queue.enqueue(makeRequest(QStringLiteral("/cards/B"), 1), QStringLiteral("B"));
+    QCOMPARE(a, 0);
+    QCOMPARE(b, 1);
+    QCOMPARE(queue.count(), 2);
+    QCOMPARE(queue.activeCount(), 2);
+
+    QModelIndex i0 = queue.index(0);
+    QCOMPARE(queue.data(i0, JobQueueModel::DestinationCountRole).toInt(), 2);
+    QCOMPARE(queue.requestAt(0).destinations.size(), 2);
+
+    // Run the first job, then advance to the second.
+    QCOMPARE(queue.nextQueuedIndex(), 0);
+    queue.setState(0, JobQueueModel::Running);
+    QCOMPARE(queue.nextQueuedIndex(), 1);
+    queue.setState(0, JobQueueModel::Complete);
+    queue.setSummary(0, QStringLiteral("PASS"), 42);
+    QCOMPARE(queue.data(i0, JobQueueModel::FinalStatusRole).toString(), QStringLiteral("PASS"));
+    QCOMPARE(queue.data(i0, JobQueueModel::TotalFilesRole).toInt(), 42);
+    QCOMPARE(queue.activeCount(), 1);
+}
+
+void DitModelTests::jobQueueReorderAndClear()
+{
+    JobQueueModel queue;
+    queue.enqueue(makeRequest(QStringLiteral("/A"), 1), QStringLiteral("A"));
+    queue.enqueue(makeRequest(QStringLiteral("/B"), 1), QStringLiteral("B"));
+    queue.enqueue(makeRequest(QStringLiteral("/C"), 1), QStringLiteral("C"));
+
+    queue.moveJob(0, 2); // A,B,C -> B,C,A
+    QCOMPARE(queue.data(queue.index(0), JobQueueModel::LabelRole).toString(), QStringLiteral("B"));
+    QCOMPARE(queue.data(queue.index(2), JobQueueModel::LabelRole).toString(), QStringLiteral("A"));
+
+    queue.setState(0, JobQueueModel::Complete);
+    queue.setState(1, JobQueueModel::Failed);
+    queue.clearFinished();
+    QCOMPARE(queue.count(), 1);
+    QCOMPARE(queue.data(queue.index(0), JobQueueModel::LabelRole).toString(), QStringLiteral("A"));
 }
 
 QTEST_MAIN(DitModelTests)

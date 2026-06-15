@@ -306,6 +306,15 @@ SplitView {
                     }
                     QuietButton {
                         Layout.fillWidth: true
+                        text: "Add to Queue"
+                        iconName: "list"
+                        enabled: appController.destinationModel.count > 0 && appController.sourcePath.length > 0
+                        onClicked: appController.enqueueCurrent()
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Stage this configuration as a job in the queue"
+                    }
+                    QuietButton {
+                        Layout.fillWidth: true
                         height: Theme.actionHeight
                         text: "Cancel"
                         iconName: "stop"

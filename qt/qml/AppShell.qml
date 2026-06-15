@@ -40,18 +40,9 @@ Item {
 
                 LibraryView {}
 
-                EmptyState {
-                    iconName: "file-text"
-                    title: "Reports"
-                    subtitle: "Preview and export TXT, CSV, MHL, ALE and JSON reports in-app. "
-                        + "Arriving in the next update."
-                }
-                EmptyState {
-                    iconName: "list"
-                    title: "Job Queue"
-                    subtitle: "Queue multiple offload jobs and run them back-to-back, ShotPut "
-                        + "style. Arriving in the next update."
-                }
+                ReportsView {}
+
+                JobQueueView {}
             }
         }
 
