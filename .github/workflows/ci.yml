@@ -59,7 +59,7 @@ jobs:
             generator: Ninja
             configure_extra: -DCMAKE_BUILD_TYPE=Release
           - name: windows
-            os: windows-latest
+            os: windows-2022
             generator: Ninja
             configure_extra: -DCMAKE_BUILD_TYPE=Release
           - name: macos-arm64
