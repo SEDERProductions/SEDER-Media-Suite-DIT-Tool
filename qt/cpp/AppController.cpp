@@ -7,10 +7,14 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QClipboard>
+#include <QPointer>
 #include <QDateTime>
 #include <QDir>
 #include <QSaveFile>
 #include <QThread>
+#include <QThreadPool>
+#include <QRunnable>
+#include <QCoreApplication>
 #include <QRegularExpression>
 #include <functional>
 
@@ -30,6 +34,8 @@ AppController::AppController(SettingsStore *settings, QObject *parent)
     : QObject(parent)
     , m_settings(settings)
     , m_destinationModel(new DestinationListModel(this))
+    , m_clipLibrary(new ClipLibraryModel(this))
+    , m_jobQueue(new JobQueueModel(this))
 {
     if (m_settings) {
         m_ignorePatterns = m_settings->defaultIgnorePatterns();
@@ -59,6 +65,13 @@ QString AppController::appVersion() const
 QString AppController::sourcePath() const { return m_sourcePath; }
 void AppController::setSourcePath(const QString &value) { setIfChanged(m_sourcePath, value, [this] { emit sourcePathChanged(); }); }
 DestinationListModel *AppController::destinationModel() const { return m_destinationModel; }
+ClipLibraryModel *AppController::clipLibrary() const { return m_clipLibrary; }
+JobQueueModel *AppController::jobQueue() const { return m_jobQueue; }
+QString AppController::reportTxt() const { return m_txtExport; }
+QString AppController::reportCsv() const { return m_csvExport; }
+QString AppController::reportMhl() const { return m_mhlExport; }
+QString AppController::reportAle() const { return m_aleExport; }
+QString AppController::reportMetadataJson() const { return m_metadataJsonExport; }
 QString AppController::projectName() const { return m_projectName; }
 void AppController::setProjectName(const QString &value) { setIfChanged(m_projectName, value.trimmed(), [this] { emit projectNameChanged(); }); }
 QString AppController::shootDate() const { return m_shootDate; }
@@ -302,21 +315,19 @@ void AppController::removeDestination(int index)
     m_destinationModel->removeDestination(index);
 }
 
-void AppController::startOffload()
+bool AppController::buildRequestFromCurrent(OffloadRequestData &request)
 {
-    if (m_busy) return;
     if (m_sourcePath.isEmpty()) {
         setStatusText(QStringLiteral("Missing source folder."));
         appendLog(QStringLiteral("Source folder is required."), LogSeverity::Warn);
-        return;
+        return false;
     }
     if (m_destinationModel->count() == 0) {
         setStatusText(QStringLiteral("No destinations selected."));
         appendLog(QStringLiteral("At least one destination is required."), LogSeverity::Warn);
-        return;
+        return false;
     }
 
-    OffloadRequestData request;
     request.sourcePath = m_sourcePath;
     for (auto *item : m_destinationModel->items()) {
         DestinationRequest dr;
@@ -347,6 +358,56 @@ void AppController::startOffload()
             m_settings->rememberDestination(item->path());
         }
     }
+    return true;
+}
+
+static QString jobLabelFor(const OffloadRequestData &request)
+{
+    const QFileInfo fi(request.sourcePath);
+    const QString name = fi.fileName().isEmpty() ? request.sourcePath : fi.fileName();
+    return QStringLiteral("%1 → %2 dest").arg(name).arg(request.destinations.size());
+}
+
+void AppController::startOffload()
+{
+    OffloadRequestData request;
+    if (!buildRequestFromCurrent(request)) return;
+    m_jobQueue->enqueue(request, jobLabelFor(request));
+    runQueueIfIdle();
+}
+
+void AppController::enqueueCurrent()
+{
+    OffloadRequestData request;
+    if (!buildRequestFromCurrent(request)) return;
+    m_jobQueue->enqueue(request, jobLabelFor(request));
+    appendLog(QStringLiteral("Queued job: %1").arg(jobLabelFor(request)));
+}
+
+void AppController::runQueue()
+{
+    if (m_busy) return;
+    if (m_jobQueue->nextQueuedIndex() < 0) {
+        appendLog(QStringLiteral("No queued jobs to run."), LogSeverity::Warn);
+        return;
+    }
+    runQueueIfIdle();
+}
+
+void AppController::runQueueIfIdle()
+{
+    if (m_busy) return;
+    const int idx = m_jobQueue->nextQueuedIndex();
+    if (idx < 0) return;
+    startJob(idx);
+}
+
+void AppController::startJob(int jobIndex)
+{
+    if (!m_jobQueue->hasRequestAt(jobIndex)) return;
+    const OffloadRequestData request = m_jobQueue->requestAt(jobIndex);
+    m_runningJobIndex = jobIndex;
+    m_jobQueue->setState(jobIndex, JobQueueModel::Running);
 
     setBusy(true);
     setOverallProgress(0.0);
@@ -355,6 +416,8 @@ void AppController::startOffload()
     setPass(false);
     m_canExport = false;
     m_canExportMhl = false;
+    m_txtExport.clear();
+    m_csvExport.clear();
     m_mhlExport.clear();
     m_metadataJsonExport.clear();
     m_aleExport.clear();
@@ -362,8 +425,9 @@ void AppController::startOffload()
     m_verificationPerformed = false;
     emit exportStateChanged();
     emit canExportMhlChanged();
+    emit canExportMetadataJsonChanged();
     emit summaryChanged();
-    appendLog(QStringLiteral("Starting DIT offload."));
+    appendLog(QStringLiteral("Starting DIT offload: %1").arg(jobLabelFor(request)));
 
     for (auto *item : m_destinationModel->items()) {
         item->setState(DestinationItem::Pending);
@@ -371,15 +435,20 @@ void AppController::startOffload()
         item->setError(QString());
     }
     m_prevDestFilesCompleted.clear();
-    m_prevDestFilesCompleted.resize(m_destinationModel->count(), 0);
+    m_prevDestFilesCompleted.resize(request.destinations.size(), 0);
 
+    runRequest(request, jobIndex);
+}
+
+void AppController::runRequest(const OffloadRequestData &request, int jobIndex)
+{
     auto *thread = new QThread(this);
     auto *worker = new DitOffloadWorker(request);
     m_activeWorker = worker;
     worker->moveToThread(thread);
 
     connect(thread, &QThread::started, worker, &DitOffloadWorker::run);
-    connect(worker, &DitOffloadWorker::progress, this, [this](const OffloadProgressData &update) {
+    connect(worker, &DitOffloadWorker::progress, this, [this, jobIndex](const OffloadProgressData &update) {
         const bool isScanningPhase = update.phase.startsWith(QStringLiteral("scanning_source"));
         if (update.phase == QStringLiteral("scanning_source_start")) {
             setStatusText(QStringLiteral("Scanning source..."));
@@ -474,8 +543,9 @@ void AppController::startOffload()
                 }
             }
         }
+        m_jobQueue->setProgress(jobIndex, m_overallProgress);
     });
-    connect(worker, &DitOffloadWorker::finished, this, [this, request](const FinalReportData &report) {
+    connect(worker, &DitOffloadWorker::finished, this, [this, request, jobIndex](const FinalReportData &report) {
         setBusy(false);
         setOverallProgress(1.0);
         setPass(report.allPass);
@@ -550,31 +620,48 @@ void AppController::startOffload()
         m_aleExport = report.aleExport;
         m_finalStatus = report.finalStatus;
         m_verificationPerformed = report.verificationPerformed;
+        m_clipLibrary->loadFromMetadataJson(m_metadataJsonExport.toUtf8(), request.sourcePath);
         emit exportStateChanged();
         emit canExportMhlChanged();
         emit canExportMetadataJsonChanged();
         emit summaryChanged();
+
+        m_jobQueue->setSummary(jobIndex, report.finalStatus, report.totalFiles);
+        m_jobQueue->setProgress(jobIndex, 1.0);
+        m_jobQueue->setState(jobIndex, report.allPass ? JobQueueModel::Complete : JobQueueModel::Failed);
+        m_runningJobIndex = -1;
+        runQueueIfIdle();
     });
-    connect(worker, &DitOffloadWorker::failed, this, [this](const QString &message) {
+    connect(worker, &DitOffloadWorker::failed, this, [this, jobIndex](const QString &message) {
         setBusy(false);
         setOverallProgress(0.0);
         setStatusText(message);
         setPass(false);
         appendLog(QStringLiteral("Offload failed: %1").arg(message), LogSeverity::Error);
+        m_jobQueue->setState(jobIndex, JobQueueModel::Failed);
+        m_runningJobIndex = -1;
+        runQueueIfIdle();
     });
-    connect(worker, &DitOffloadWorker::cancelled, this, [this] {
+    connect(worker, &DitOffloadWorker::cancelled, this, [this, jobIndex] {
         setBusy(false);
         setOverallProgress(0.0);
         setStatusText(QStringLiteral("Offload cancelled."));
         setPass(false);
         appendLog(QStringLiteral("Offload cancelled by user."), LogSeverity::Warn);
+        m_jobQueue->setState(jobIndex, JobQueueModel::Cancelled);
+        m_runningJobIndex = -1;
+        // Cancellation stops the queue; the user can resume with Run Queue.
     });
     connect(worker, &DitOffloadWorker::finished, thread, [thread](const FinalReportData &) { thread->quit(); });
     connect(worker, &DitOffloadWorker::failed, thread, &QThread::quit);
     connect(worker, &DitOffloadWorker::cancelled, thread, &QThread::quit);
     connect(thread, &QThread::finished, worker, &QObject::deleteLater);
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    connect(thread, &QThread::finished, this, [this] { m_activeWorker = nullptr; });
+    // Guard against clobbering a newly-started job's worker (queue advance
+    // can start the next job before this thread fully finishes).
+    connect(thread, &QThread::finished, this, [this, worker] {
+        if (m_activeWorker == worker) m_activeWorker = nullptr;
+    });
     thread->start();
 }
 
@@ -632,6 +719,39 @@ void AppController::exportAle()
     writeExport(tr("Export ALE (Avid Log Exchange)"),
                 QStringLiteral("seder-dit-report.ale"),
                 m_aleExport);
+}
+
+void AppController::generateProxy(const QString &relPath, const QString &preset)
+{
+    if (m_sourcePath.isEmpty() || relPath.isEmpty()) {
+        appendLog(QStringLiteral("Proxy generation needs a source and a clip."), LogSeverity::Warn);
+        return;
+    }
+    if (!ffmpegAvailable()) {
+        appendLog(QStringLiteral("Proxy generation needs ffmpeg, which was not found."), LogSeverity::Warn);
+        return;
+    }
+    const QString media = QDir(m_sourcePath).filePath(relPath);
+    const QString proxiesRoot = QDir(m_sourcePath).filePath(QStringLiteral("Proxies"));
+    const QString normalizedPreset = preset.trimmed().isEmpty() ? QStringLiteral("PRORES") : preset.trimmed();
+    appendLog(QStringLiteral("Generating %1 proxy for %2…").arg(normalizedPreset, relPath));
+
+    QPointer<AppController> self(this);
+    QThreadPool::globalInstance()->start(QRunnable::create([self, media, proxiesRoot, normalizedPreset, relPath]() {
+        const QByteArray mediaB = media.toUtf8();
+        const QByteArray rootB = proxiesRoot.toUtf8();
+        const QByteArray presetB = normalizedPreset.toUtf8();
+        char *out = seder_generate_proxy(mediaB.constData(), rootB.constData(), presetB.constData());
+        const QString result = out ? QString::fromUtf8(out) : QString();
+        if (out) seder_string_free(out);
+        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, result, relPath]() {
+            if (!self) return;
+            if (result.isEmpty())
+                self->appendLog(QStringLiteral("Proxy generation failed for %1.").arg(relPath), LogSeverity::Error);
+            else
+                self->appendLog(QStringLiteral("Proxy written: %1").arg(result));
+        }, Qt::QueuedConnection);
+    }));
 }
 
 QString AppController::formatBytes(quint64 value) const
@@ -726,6 +846,17 @@ void AppController::clearLog()
     m_logLines.clear();
     emit logLinesChanged();
     appendLog(QStringLiteral("Log cleared."));
+}
+
+void AppController::copyText(const QString &text)
+{
+    QClipboard *clipboard = QGuiApplication::clipboard();
+    if (!clipboard) {
+        appendLog(QStringLiteral("Clipboard is unavailable."), LogSeverity::Warn);
+        return;
+    }
+    clipboard->setText(text);
+    appendLog(QStringLiteral("Copied report to clipboard."));
 }
 
 void AppController::copyLog()

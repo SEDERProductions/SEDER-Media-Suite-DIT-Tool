@@ -135,26 +135,43 @@ qt_add_executable(seder-media-suite-dit-qt
     WIN32
     cpp/AppController.cpp
     cpp/AppController.h
+    cpp/ClipLibraryModel.cpp
+    cpp/ClipLibraryModel.h
     cpp/DestinationItem.cpp
     cpp/DestinationItem.h
     cpp/DestinationListModel.cpp
     cpp/DestinationListModel.h
     cpp/DitOffloadWorker.cpp
     cpp/DitOffloadWorker.h
+    cpp/JobQueueModel.cpp
+    cpp/JobQueueModel.h
     cpp/SettingsStore.cpp
     cpp/SettingsStore.h
     cpp/ThemeController.cpp
     cpp/ThemeController.h
+    cpp/ThumbnailProvider.cpp
+    cpp/ThumbnailProvider.h
     cpp/main.cpp
     cpp/seder_ffi.h
     ${SEDER_APP_PLATFORM_SOURCES}
 )
+
+set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 qt_add_qml_module(seder-media-suite-dit-qt
     URI SederDit
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/Theme.qml
+        qml/Format.js
+        qml/Icon.qml
+        qml/Divider.qml
+        qml/IconButton.qml
+        qml/StatusPill.qml
+        qml/SegmentedControl.qml
+        qml/EmptyState.qml
+        qml/Panel.qml
         qml/MetaLabel.qml
         qml/FieldLabel.qml
         qml/DenseTextField.qml
@@ -165,6 +182,18 @@ qt_add_qml_module(seder-media-suite-dit-qt
         qml/PathPicker.qml
         qml/AboutDialog.qml
         qml/PreferencesDialog.qml
+        qml/HeaderBar.qml
+        qml/NavRail.qml
+        qml/StatusBar.qml
+        qml/AppShell.qml
+        qml/OffloadView.qml
+        qml/MetaRow.qml
+        qml/ClipCard.qml
+        qml/InspectorPanel.qml
+        qml/LibraryView.qml
+        qml/JobRow.qml
+        qml/JobQueueView.qml
+        qml/ReportsView.qml
 )
 
 target_include_directories(seder-media-suite-dit-qt PRIVATE cpp)
@@ -215,10 +244,14 @@ install(SCRIPT ${seder_deploy_script})
 if(BUILD_TESTING)
     qt_add_executable(dit_model_tests
         tests/dit_model_tests.cpp
+        cpp/ClipLibraryModel.cpp
+        cpp/ClipLibraryModel.h
         cpp/DestinationItem.cpp
         cpp/DestinationItem.h
         cpp/DestinationListModel.cpp
         cpp/DestinationListModel.h
+        cpp/JobQueueModel.cpp
+        cpp/JobQueueModel.h
         cpp/seder_ffi.h
     )
     target_include_directories(dit_model_tests PRIVATE cpp)

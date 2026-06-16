@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import SederDit
 
 Rectangle {
     id: pathPickerRoot
@@ -8,27 +9,18 @@ Rectangle {
     property string path: ""
     property bool busy: false
     property var recents: []
+    property string placeholder: "No folder selected — drop a folder here or click Choose"
     signal pick()
     signal acceptDroppedPath(string droppedPath)
     signal recentSelected(string recentPath)
 
     Layout.fillWidth: true
-    height: 68
+    implicitHeight: column.implicitHeight
     color: "transparent"
-
-    readonly property bool dark: themeController.dark
-    readonly property color muted: dark ? "#ada596" : "#4a4438"
-    readonly property color faint: dark ? "#716a5f" : "#7a7363"
-    readonly property color panelAlt: dark ? "#282521" : "#e3dccb"
-    readonly property color line: dark ? "#3a352e" : "#d6cfbe"
-    readonly property color highlight: dark ? "#4cab7e" : "#1f7a4d"
-    readonly property string mono: "Menlo, Consolas, monospace"
-    readonly property string sans: "Manrope, Helvetica Neue, Helvetica, Arial, sans-serif"
 
     function urlToLocalPath(url) {
         const s = url.toString()
         if (s.startsWith("file:///")) {
-            // Windows: file:///C:/foo  → C:/foo. Unix: file:///home/x → /home/x
             const stripped = s.substring(8)
             return stripped.length >= 3 && stripped.charAt(1) === ":"
                 ? decodeURIComponent(stripped)
@@ -41,36 +33,40 @@ Rectangle {
     }
 
     ColumnLayout {
-        anchors.fill: parent
+        id: column
+        width: parent.width
         spacing: 6
-        FieldLabel { text: label }
+        FieldLabel { text: pathPickerRoot.label; visible: pathPickerRoot.label !== "" }
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
             QuietButton {
                 text: "Choose"
-                Layout.preferredWidth: 82
+                iconName: "folder"
+                Layout.preferredWidth: 96
                 enabled: !pathPickerRoot.busy
                 onClicked: pathPickerRoot.pick()
             }
             Rectangle {
                 id: pathField
                 Layout.fillWidth: true
-                height: 32
-                color: dropArea.containsDrag ? Qt.darker(panelAlt, dark ? 0.9 : 1.05) : panelAlt
-                border.color: dropArea.containsDrag ? highlight : line
-                border.width: dropArea.containsDrag ? 2 : 1
-                radius: 4
+                height: Theme.fieldHeight
+                color: dropArea.containsDrag ? Theme.accent.successBg : Theme.surface.raised
+                border.color: dropArea.containsDrag ? Theme.accent.success : Theme.border.base
+                border.width: dropArea.containsDrag ? Theme.focusRing : 1
+                radius: Theme.radiusSm
+                Behavior on border.color { ColorAnimation { duration: Theme.motionFast } }
                 Text {
                     anchors.fill: parent
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
+                    anchors.leftMargin: 10
+                    anchors.rightMargin: 10
                     text: dropArea.containsDrag
                         ? "Drop folder to use"
-                        : (path.length > 0 ? path : "No folder selected — drop a folder here or click Choose")
-                    color: dropArea.containsDrag ? highlight : (path.length > 0 ? muted : faint)
-                    font.family: mono
-                    font.pixelSize: 11
+                        : (pathPickerRoot.path.length > 0 ? pathPickerRoot.path : pathPickerRoot.placeholder)
+                    color: dropArea.containsDrag ? Theme.accent.success
+                        : (pathPickerRoot.path.length > 0 ? Theme.text.mid : Theme.text.faint)
+                    font.family: Theme.fontMono
+                    font.pixelSize: Theme.textMeta
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideMiddle
                 }
@@ -91,8 +87,9 @@ Rectangle {
             }
             QuietButton {
                 id: recentsButton
-                text: "Recent ▾"
-                Layout.preferredWidth: 78
+                text: "Recent"
+                iconName: "chevron-down"
+                Layout.preferredWidth: 90
                 enabled: !pathPickerRoot.busy && pathPickerRoot.recents && pathPickerRoot.recents.length > 0
                 onClicked: recentsMenu.popup()
                 Menu {

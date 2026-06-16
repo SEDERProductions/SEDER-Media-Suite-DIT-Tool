@@ -1,44 +1,42 @@
 import QtQuick
 import QtQuick.Controls
+import SederDit
 
 CheckBox {
     id: control
-    readonly property bool dark: themeController.dark
-    readonly property color ink: dark ? "#ece6d9" : "#16140f"
-    readonly property color muted: dark ? "#ada596" : "#4a4438"
-    readonly property color faint: dark ? "#716a5f" : "#7a7363"
-    readonly property color panelAlt: dark ? "#282521" : "#e3dccb"
-    readonly property color line: dark ? "#3a352e" : "#d6cfbe"
-    readonly property color red: dark ? "#d1411a" : "#c63b13"
-    readonly property string sans: "Manrope, Helvetica Neue, Helvetica, Arial, sans-serif"
-
-    font.family: sans
-    font.pixelSize: 12
+    font.family: Theme.fontSans
+    font.pixelSize: Theme.textBody
     spacing: 8
     hoverEnabled: true
     opacity: enabled ? 1 : 0.45
+
     indicator: Rectangle {
-        implicitWidth: 16
-        implicitHeight: 16
+        implicitWidth: 18
+        implicitHeight: 18
         x: control.leftPadding
         y: control.topPadding + (control.availableHeight - height) / 2
-        radius: 3
-        color: control.checked ? red : panelAlt
-        border.color: control.visualFocus ? red : (control.hovered ? muted : line)
-        border.width: control.visualFocus ? 2 : 1
-        Rectangle {
+        radius: Theme.radiusSm
+        color: control.checked ? Theme.accent.brand : Theme.surface.raised
+        border.color: control.visualFocus ? Theme.accent.brand
+            : (control.checked ? Theme.accent.brand
+            : (control.hovered ? Theme.text.mid : Theme.border.base))
+        border.width: control.visualFocus ? Theme.focusRing : 1
+        Behavior on color { ColorAnimation { duration: Theme.motionFast } }
+
+        Icon {
             anchors.centerIn: parent
-            width: 8
-            height: 8
-            radius: 2
+            name: "check"
+            size: 14
+            stroke: 2.4
+            color: Theme.text.onAccent
             visible: control.checked
-            color: "#ffffff"
         }
     }
+
     contentItem: Text {
         text: control.text
         font: control.font
-        color: control.enabled ? ink : muted
+        color: control.enabled ? Theme.text.hi : Theme.text.mid
         leftPadding: control.indicator.width + control.spacing
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight

@@ -32,11 +32,19 @@ configured for this project.
 
 ## Features
 
-- Compare source and destination folders with path/size, modified-time, or checksum modes.
-- Ignore hidden/system files and custom ignore patterns.
-- Run scan and checksum work off the UI thread.
-- Inspect large result sets through a virtualized Qt table model.
-- Export TXT, CSV, and checksum-backed MHL reports.
+- Panel-based workspace (Offload / Library / Reports / Queue) with a polished,
+  token-driven interface and light/dark themes.
+- Offload a source to multiple destinations in parallel with checksum
+  verification (BLAKE3, MD5, SHA-1, XXH3-64, XXH3-128).
+- Ignore hidden/system files and custom ignore patterns; all scan and
+  checksum work runs off the UI thread.
+- Media Library with thumbnail grid, live search, and a clip inspector
+  (codec, resolution, frame rate, duration, timecode, audio, color space) —
+  with on-demand proxy generation (ProRes / H.264 / DNxHR) when FFmpeg is
+  present.
+- Job queue: stage multiple offloads and run them back-to-back.
+- Preview and export TXT, CSV, checksum-backed MHL, ALE, and JSON reports
+  in-app.
 - Keep all processing local.
 
 ## Privacy
