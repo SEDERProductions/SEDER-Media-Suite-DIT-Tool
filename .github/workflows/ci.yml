@@ -11,6 +11,10 @@ permissions:
 
 env:
   QT_VERSION: "6.4.2"
+  # Harden cargo against transient crates.io network flakes, notably
+  # "[16] Error in the HTTP2 framing layer" during dependency downloads.
+  CARGO_NET_RETRY: "10"
+  CARGO_HTTP_MULTIPLEXING: "false"
 
 jobs:
   rust:
