@@ -106,6 +106,16 @@ jobs:
         with:
           arch: x64
 
+      # The build steps run under Git Bash, whose /usr/bin/link.exe (GNU
+      # coreutils) shadows the MSVC linker on PATH when cargo invokes it by
+      # name. Point cargo at the absolute MSVC link.exe instead.
+      - name: Use MSVC linker for Rust
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $link = Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64\link.exe'
+          "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" >> $env:GITHUB_ENV
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
