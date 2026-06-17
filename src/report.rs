@@ -108,11 +108,11 @@ pub fn report_csv(report: &OffloadReport) -> String {
         };
         let error = dest.final_error.as_deref().unwrap_or("");
         out.push_str(&format!(
-            "\"{}\",\"{}\",\"{}\",{},{},{},{},{},\"{}\"\n",
+            "{},{},{},{},{},{},{},{},{}\n",
             csv_field(dest.config.label.as_deref().unwrap_or("")),
             csv_field(&dest.config.path.display().to_string()),
-            verification_mode,
-            status,
+            csv_field(verification_mode),
+            csv_field(status),
             dest.files_copied,
             dest.files_verified,
             dest.files_skipped,
@@ -467,12 +467,24 @@ mod tests {
         report.destination_results[0].config.label = Some("Backup \"A\"".into());
         report.destination_results[0].config.path = PathBuf::from("/Volumes/BACKUP, 01");
         report.destination_results[0].final_error = Some("bad \"checksum\"".into());
+        report.verification_performed = false;
 
         let csv = report_csv(&report);
 
+        // Each field is quoted exactly once: the outer quotes come from
+        // csv_field() alone, and embedded quotes are doubled per RFC 4180.
+        // A value ending in a quote (e.g. `Backup "A"`) legitimately yields
+        // a `"""` run (doubled quote + field-closing quote), so we assert
+        // the exact escaped forms rather than a blanket "no triple quote".
         assert!(csv.contains("\"Backup \"\"A\"\"\""));
         assert!(csv.contains("\"/Volumes/BACKUP, 01\""));
+        assert!(csv.contains("\"Copy-only (Unverified)\""));
+        assert!(csv.contains("\"COPIED (UNVERIFIED)\""));
         assert!(csv.contains("\"bad \"\"checksum\"\"\""));
+        // Guard against the old double-wrapping bug: a field's value should
+        // never be wrapped in two layers of quotes (e.g. `""Verified""`).
+        assert!(!csv.contains("\"\"Verified\"\""));
+        assert!(!csv.contains("\"\"Copy-only"));
     }
 
     #[test]
