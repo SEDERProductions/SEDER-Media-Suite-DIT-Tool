@@ -877,6 +877,42 @@ mod tests {
     }
 
     #[test]
+    fn verify_file_detects_tampered_destination() {
+        // Bit-rot scenario: compute the source hash, then mutate the
+        // destination's bytes out-of-band. verify_file must reject the
+        // tampered file with a checksum mismatch. This is the same code
+        // path the offload engine uses internally when computing
+        // `files_verified` vs `files_failed`.
+        let dir = tempfile::tempdir().unwrap();
+        let data = b"the quick brown fox jumps over the lazy dog";
+        let path = dir.path().join("clip.bin");
+        std::fs::write(&path, data).unwrap();
+
+        let mut hasher = ChecksumAlgo::Blake3.new_hasher();
+        hasher.update(data);
+        let expected_hash = hasher.finalize_hex();
+        assert!(!expected_hash.is_empty());
+
+        // Flip one bit and re-write the destination.
+        let mut tampered = data.to_vec();
+        tampered[0] ^= 0x01;
+        std::fs::write(&path, &tampered).unwrap();
+
+        let mut buf = vec![0u8; CHUNK_SIZE];
+        let res = verify_file(&path, &expected_hash, ChecksumAlgo::Blake3, &mut buf);
+        assert!(
+            res.is_err(),
+            "tampered destination should fail verify, got Ok"
+        );
+        let msg = format!("{}", res.unwrap_err());
+        assert!(
+            msg.contains("mismatch"),
+            "error should mention mismatch, got: {}",
+            msg
+        );
+    }
+
+    #[test]
     fn retry_io_succeeds_after_transient_interrupted() {
         use std::cell::Cell;
         let attempts = Cell::new(0u32);
