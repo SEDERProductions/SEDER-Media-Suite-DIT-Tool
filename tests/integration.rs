@@ -246,13 +246,16 @@ fn report_txt_contains_all_destinations() {
 }
 
 #[test]
-fn verify_failure_detected() {
+fn verify_succeeds_after_overwrite() {
+    // The original `verify_failure_detected` test claimed to test a
+    // failure path but actually exercised the success path twice. This
+    // is the renamed, corrected version: prove that a clean copy+verify
+    // round-trip lands files_verified == 1 and files_failed == 0.
     let tmp = tempfile::tempdir().unwrap();
     let src = tmp.path().join("source");
     let dst = tmp.path().join("dest");
     std::fs::create_dir_all(&dst).unwrap();
     std::fs::create_dir_all(&src).unwrap();
-
     std::fs::write(src.join("test.mxf"), b"original content").unwrap();
 
     let scan = scan_source(&src, &make_options(), &mut |_, _| {}).unwrap();
@@ -260,7 +263,6 @@ fn verify_failure_detected() {
     let cancel = Arc::new(AtomicBool::new(false));
     let mut warnings = Vec::new();
 
-    // Copy then corrupt the destination
     let results = offload_files(
         &src,
         &scan,
@@ -273,19 +275,12 @@ fn verify_failure_detected() {
         &mut warnings,
     )
     .unwrap();
-
-    // Should have copied and verified successfully since we didn't corrupt it
     assert_eq!(results[0].files_verified, 1);
     assert_eq!(results[0].files_failed, 0);
 
-    // Now corrupt and re-verify by calling verify_file directly
-    std::fs::write(dst.join("test.mxf"), b"corrupted content").unwrap();
-
-    // Re-scan to get fresh hash, then re-copy with verify
-    std::fs::write(src.join("test.mxf"), b"corrupted content").unwrap();
+    // Overwrite with the same content; verify should still pass.
+    std::fs::write(src.join("test.mxf"), b"new content").unwrap();
     let scan2 = scan_source(&src, &make_options(), &mut |_, _| {}).unwrap();
-    // Force verify by having destination already exist with wrong content
-    // but since skip_existing=false, it'll overwrite and verify should pass
     let mut warnings2 = Vec::new();
     let results2 = offload_files(
         &src,
@@ -300,6 +295,41 @@ fn verify_failure_detected() {
     )
     .unwrap();
     assert_eq!(results2[0].files_verified, 1);
+    assert_eq!(results2[0].files_failed, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn verify_failure_is_reported() {
+    // Simulate a bit-rot scenario: copy succeeds, then mutate the
+    // destination out-of-band, then call `verify_file` directly. This
+    // exercises the same code path the offload engine uses internally
+    // when computing `files_verified` vs `files_failed`.
+    use crate::offload::engine::verify_file;
+    use crate::offload::hash::ChecksumAlgo;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("source");
+    let dst = tmp.path().join("dest");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::create_dir_all(&dst).unwrap();
+    let data = b"the quick brown fox jumps over the lazy dog";
+    std::fs::write(src.join("clip.mxf"), data).unwrap();
+
+    let scan = scan_source(&src, &make_options(), &mut |_, _| {}).unwrap();
+    assert_eq!(scan.total_files, 1);
+    let expected_hash = &scan.files[0].source_hash;
+    assert!(!expected_hash.is_empty());
+
+    // Mutate the destination's bytes after computing the expected hash.
+    // This must produce a checksum mismatch.
+    let mut tampered = data.to_vec();
+    tampered[0] ^= 0x01;
+    std::fs::write(dst.join("clip.mxf"), &tampered).unwrap();
+
+    let mut buf = vec![0u8; 1024 * 1024];
+    let res = verify_file(&dst.join("clip.mxf"), expected_hash, ChecksumAlgo::Blake3, &mut buf);
+    assert!(res.is_err(), "tampered destination should fail verify");
 }
 
 #[cfg(unix)]

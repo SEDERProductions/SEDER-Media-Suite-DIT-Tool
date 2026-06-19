@@ -11,11 +11,9 @@ pub fn volume_id(path: &Path) -> Option<u64> {
     {
         use std::path::Component;
         let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        if let Some(prefix) = canonical.components().next() {
-            if let Component::Prefix(prefix) = prefix {
-                let s = prefix.as_os_str().to_string_lossy().to_ascii_uppercase();
-                return Some(fxhash(&s));
-            }
+        if let Some(Component::Prefix(prefix)) = canonical.components().next() {
+            let s = prefix.as_os_str().to_string_lossy().to_ascii_uppercase();
+            return Some(fxhash(&s));
         }
         None
     }

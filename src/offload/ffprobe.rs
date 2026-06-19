@@ -7,8 +7,12 @@
 //! optional JSON sidecar report.
 
 use serde::{Deserialize, Serialize};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 
 /// Hard ceiling for an ffprobe invocation, in case a file probes hang
@@ -128,19 +132,23 @@ fn fallback_dirs() -> Vec<PathBuf> {
 
 /// Run ffprobe on a single file and parse the result. Returns Err when
 /// ffprobe fails to start, exits non-zero, or emits unparseable JSON.
+/// A hung ffprobe is bounded by `PROBE_TIMEOUT` — the child process is
+/// killed and the call returns `Err` so a corrupt file can't freeze the
+/// whole scan.
 pub fn probe(media: &Path, ffprobe: &Path) -> anyhow::Result<ClipMetadata> {
-    let output = Command::new(ffprobe)
-        .args([
+    let output = run_with_timeout(
+        Command::new(ffprobe),
+        &[
             "-v",
             "error",
             "-show_format",
             "-show_streams",
             "-of",
             "json",
-        ])
-        .arg(media)
-        .output()
-        .map_err(|e| anyhow::anyhow!("Spawn ffprobe: {}", e))?;
+        ],
+        media,
+        PROBE_TIMEOUT,
+    )?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -151,6 +159,164 @@ pub fn probe(media: &Path, ffprobe: &Path) -> anyhow::Result<ClipMetadata> {
         .map_err(|e| anyhow::anyhow!("ffprobe emitted non-UTF8 output: {}", e))?;
 
     parse_ffprobe_json(&stdout)
+}
+
+/// Run `cmd` with the given args + `media` argument, enforcing `timeout`.
+/// On expiry the child is killed and the function returns an error.
+///
+/// The child is shared with a waiter thread via `Arc<Mutex<Option<Child>>>`
+/// so the timeout killer can reach it after the waiter has taken it out of
+/// the mutex (and vice versa). stdout/stderr are drained in their own
+/// threads so a chatty child cannot deadlock on a full pipe buffer.
+fn run_with_timeout(
+    mut cmd: Command,
+    args: &[&str],
+    media: &Path,
+    timeout: Duration,
+) -> anyhow::Result<std::process::Output> {
+    cmd.args(args).arg(media);
+    let (child, out_rx, err_rx) = spawn_piped(cmd)?;
+    let child_slot: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(child)));
+    let status = wait_with_timeout(child_slot, timeout)?;
+    // Drain stdout/stderr. These threads are guaranteed to send exactly
+    // once each and we don't time them out — once the process has exited
+    // any pending bytes will arrive quickly.
+    let stdout = out_rx
+        .recv()
+        .map_err(|_| anyhow::anyhow!("stdout drain thread failed"))?;
+    let stderr = err_rx
+        .recv()
+        .map_err(|_| anyhow::anyhow!("stderr drain thread failed"))?;
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+/// Child plus the receiver halves for its captured stdout/stderr. The
+/// two receivers each yield exactly once, when the corresponding drain
+/// thread observes the OS pipe close.
+type PipedChild = (Child, mpsc::Receiver<Vec<u8>>, mpsc::Receiver<Vec<u8>>);
+
+/// Spawn a `Command` with piped stdout/stderr, returning the child and
+/// the two receiver halves for the drain threads. The drain threads run
+/// for the lifetime of the spawned process; their receivers yield the
+/// captured bytes once the OS pipe closes.
+fn spawn_piped(mut cmd: Command) -> anyhow::Result<PipedChild> {
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("Spawn: {}", e))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("stdout was not piped"))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("stderr was not piped"))?;
+    let (out_tx, out_rx) = mpsc::sync_channel::<Vec<u8>>(1);
+    let (err_tx, err_rx) = mpsc::sync_channel::<Vec<u8>>(1);
+    thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout.read_to_end(&mut buf);
+        let _ = out_tx.send(buf);
+    });
+    thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr.read_to_end(&mut buf);
+        let _ = err_tx.send(buf);
+    });
+    Ok((child, out_rx, err_rx))
+}
+
+/// Wait for a spawned child (held inside `child_slot`) with the given
+/// `timeout`. On expiry the child is killed via its OS process id; on
+/// success the final `ExitStatus` is returned. Split out from
+/// `run_with_timeout` so tests can drive it without spinning up extra
+/// drain threads.
+///
+/// Implementation note: the child is moved OUT of the mutex into the
+/// waiter thread before `wait()` is called — otherwise the timeout
+/// killer would deadlock against the waiter for the same mutex.
+fn wait_with_timeout(
+    child_slot: Arc<Mutex<Option<Child>>>,
+    timeout: Duration,
+) -> anyhow::Result<std::process::ExitStatus> {
+    // Capture the pid first; the killer needs it (the child itself will
+    // be moved into the waiter thread below).
+    let pid = {
+        let guard = child_slot.lock().unwrap_or_else(|p| p.into_inner());
+        match guard.as_ref() {
+            Some(c) => c.id(),
+            None => anyhow::bail!("child already taken"),
+        }
+    };
+
+    let (status_tx, status_rx) = mpsc::sync_channel::<std::io::Result<std::process::ExitStatus>>(1);
+    {
+        let slot = Arc::clone(&child_slot);
+        thread::spawn(move || {
+            let mut child = {
+                let mut guard = slot.lock().unwrap_or_else(|p| p.into_inner());
+                match guard.take() {
+                    Some(c) => c,
+                    None => return, // killed by the timeout path
+                }
+            };
+            let status = child.wait();
+            let _ = status_tx.send(status);
+        });
+    }
+
+    match status_rx.recv_timeout(timeout) {
+        Ok(s) => s.map_err(|e| anyhow::anyhow!("Wait: {}", e)),
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            // Kill via OS handle — the waiter thread still owns the
+            // Child, so we can't go through `child.kill()`.
+            kill_process(pid);
+            anyhow::bail!("process timed out after {:?}", timeout);
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            anyhow::bail!("waiter disconnected unexpectedly");
+        }
+    }
+}
+
+/// Send SIGKILL (Unix) or call TerminateProcess (Windows) for the given
+/// process id. Best-effort: errors are silently ignored because the
+/// timeout path has no useful recovery if the kill itself fails.
+fn kill_process(pid: u32) {
+    #[cfg(unix)]
+    {
+        // Safety: kill(2) is async-signal-safe; passing an invalid pid
+        // returns ESRCH which we ignore.
+        unsafe {
+            libc::kill(pid as libc::pid_t, libc::SIGKILL);
+        }
+    }
+    #[cfg(windows)]
+    {
+        // Safety: OpenProcess / TerminateProcess / CloseHandle are
+        // documented to be safe to call with a valid process id and
+        // NULL handle returns are well-defined.
+        extern "system" {
+            fn OpenProcess(dwDesiredAccess: u32, bInheritHandle: i32, dwProcessId: u32) -> *mut std::ffi::c_void;
+            fn TerminateProcess(hProcess: *mut std::ffi::c_void, uExitCode: u32) -> i32;
+            fn CloseHandle(hObject: *mut std::ffi::c_void) -> i32;
+        }
+        const PROCESS_TERMINATE: u32 = 0x0001;
+        unsafe {
+            let h = OpenProcess(PROCESS_TERMINATE, 0, pid);
+            if !h.is_null() {
+                TerminateProcess(h, 1);
+                CloseHandle(h);
+            }
+        }
+    }
 }
 
 /// Parse the JSON produced by `ffprobe -of json -show_format -show_streams`.
@@ -387,5 +553,54 @@ mod tests {
         // the discoverer doesn't crash regardless of environment.
         let _ = discover();
         let _ = discover_ffmpeg();
+    }
+
+    /// Drives `wait_with_timeout` (the testable inner half) with a
+    /// guaranteed-hung process so we can assert that the timeout fires
+    /// and the child is killed. We use `ping -n 30 127.0.0.1` on Windows
+    /// (builtin-free) and `sleep 30` on Unix.
+    #[test]
+    fn wait_with_timeout_kills_hung_process() {
+        let (child, _out_rx, _err_rx) = spawn_piped({
+            #[cfg(windows)]
+            {
+                let mut c = Command::new("ping");
+                c.args(["-n", "30", "127.0.0.1"]);
+                c
+            }
+            #[cfg(not(windows))]
+            {
+                let mut c = Command::new("sleep");
+                c.arg("30");
+                c
+            }
+        })
+        .expect("spawn_piped should succeed for ping/sleep");
+        let slot: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(child)));
+
+        let start = std::time::Instant::now();
+        let result = wait_with_timeout(slot, Duration::from_millis(250));
+        let elapsed = start.elapsed();
+        assert!(result.is_err(), "expected timeout, got Ok: {:?}", result);
+        // Should be killed well before the 30s the child would otherwise
+        // take. Allow generous slack for slow CI.
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "timeout took too long: {:?}",
+            elapsed
+        );
+    }
+
+    /// A fast-completing command should succeed and return its output.
+    #[cfg(windows)]
+    #[test]
+    fn run_with_timeout_returns_output_for_fast_command() {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", "echo hello"]);
+        let out = run_with_timeout(cmd, &[], Path::new(""), Duration::from_secs(2))
+            .expect("fast command should complete");
+        assert!(out.status.success());
+        let s = String::from_utf8_lossy(&out.stdout);
+        assert!(s.contains("hello"));
     }
 }

@@ -2,6 +2,8 @@ use crate::offload::ffprobe;
 use crate::offload::hash::ChecksumAlgo;
 use crate::offload::media::{classify, MediaKind};
 use crate::offload::*;
+use std::sync::Arc;
+
 use crossbeam_channel::{bounded, Sender};
 use globset::{Glob, GlobSetBuilder};
 use std::fs::File;
@@ -53,6 +55,23 @@ enum ChunkMessage {
     End,
 }
 
+/// `.partial` suffix used for in-flight destination files. The writer
+/// creates `<dest>.partial`, and only renames it onto `<dest>` once the
+/// whole file has been hashed and committed. On any failure, cancel, or
+/// disconnect, the `.partial` is removed so the original `<dest>` (if any)
+/// is left untouched and we never leave a half-written file in place.
+fn partial_path_for(dest: &Path) -> std::path::PathBuf {
+    let mut name = dest
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    name.push(".partial");
+    match dest.parent() {
+        Some(parent) => parent.join(name),
+        None => std::path::PathBuf::from(name),
+    }
+}
+
 #[derive(Debug)]
 pub enum FileCopyStatus {
     Copied(String),
@@ -67,6 +86,7 @@ pub fn scan_source(
 ) -> anyhow::Result<SourceScan> {
     use walkdir::WalkDir;
 
+    let canonical_source = source.canonicalize().ok();
     let walker = WalkDir::new(source)
         .follow_links(false)
         .into_iter()
@@ -77,7 +97,23 @@ pub fn scan_source(
             if entry.depth() == 0 {
                 return true;
             }
-            !is_hidden_or_system(entry.path())
+            // Only consider the path components *inside* the source root.
+            // Walking components above the source (e.g. `%TEMP%\.tmpXYZ`
+            // on Windows, where the tempdir's own name starts with `.`)
+            // would cause every scan to filter out everything.
+            //
+            // On Windows, tempfile returns `\\?\C:\...` UNC paths while
+            // walkdir emits the canonical form, so a naive strip_prefix
+            // fails. Try both forms.
+            let entry_path = entry.path();
+            let rel = match entry_path.strip_prefix(source) {
+                Ok(p) => p,
+                Err(_) => match canonical_source.as_deref() {
+                    Some(c) => entry_path.strip_prefix(c).unwrap_or(entry_path),
+                    None => entry_path,
+                },
+            };
+            !is_hidden_or_system(rel)
         });
 
     let mut files = Vec::new();
@@ -119,7 +155,7 @@ pub fn scan_source(
         let relative = path.strip_prefix(source)?;
         let rel_str = relative.to_string_lossy().replace('\\', "/");
 
-        if options.ignore_hidden_system && is_hidden_or_system(path) {
+        if options.ignore_hidden_system && is_hidden_or_system(relative) {
             ignored_paths.push(rel_str);
             continue;
         }
@@ -418,21 +454,25 @@ fn copy_file_fanout(
     let dest_count = destinations.len();
     let mut result: Vec<FileCopyStatus> = Vec::with_capacity(dest_count);
 
-    // Determine which destinations need a copy thread vs skip
+    // Determine which destinations need a copy thread vs skip.
     for (idx, dest) in destinations.iter().enumerate() {
         let dest_path = dest.path.join(relative_path);
         if skip_existing && dest_path.exists() {
             result.push(FileCopyStatus::Skipped);
         } else {
-            // Temporary placeholder - will be filled by the actual copy
+            // Placeholder; the writer thread replaces this with Copied/Failed
+            // (or the early-fail branches below replace it with a real reason).
             result.push(FileCopyStatus::Failed("Not started".into()));
-            _ = idx; // suppress unused warning
+            let _ = idx;
         }
     }
 
-    // Spawn writer threads for destinations that need copying
+    // Spawn writer threads for destinations that need copying. Each writer
+    // owns an abort flag the main loop flips on disconnect, and writes to a
+    // `.partial` file that is only renamed onto the destination on success.
     let mut senders: Vec<(usize, Sender<ChunkMessage>)> = Vec::new();
     let mut handles: Vec<(usize, std::thread::JoinHandle<anyhow::Result<String>>)> = Vec::new();
+    let mut abort_flags: Vec<(usize, Arc<AtomicBool>)> = Vec::new();
 
     for (idx, dest) in destinations.iter().enumerate() {
         if matches!(result[idx], FileCopyStatus::Skipped) {
@@ -472,24 +512,65 @@ fn copy_file_fanout(
         let (tx, rx) = bounded::<ChunkMessage>(CHANNEL_BOUND);
         senders.push((idx, tx));
 
-        let handle = std::thread::spawn(move || -> anyhow::Result<String> {
-            let mut file = retry_io(|| File::create(&dest_path))
-                .map_err(|e| anyhow::anyhow!("Create {}: {}", dest_path.display(), e))?;
-            let mut hasher = algorithm.new_hasher();
+        let abort = Arc::new(AtomicBool::new(false));
+        abort_flags.push((idx, abort.clone()));
 
-            for msg in rx {
-                match msg {
-                    ChunkMessage::Data(bytes) => {
-                        retry_io(|| file.write_all(&bytes))?;
-                        hasher.update(&bytes);
+        let tmp_path = partial_path_for(&dest_path);
+        let dest_path_for_thread = dest_path.clone();
+
+        let handle = std::thread::spawn(move || -> anyhow::Result<String> {
+            // Anything in this IIFE that fails must end with the .partial
+            // file removed; we do that uniformly in the outer match.
+            let tmp_path_inner = tmp_path.clone();
+            let work = || -> anyhow::Result<String> {
+                let mut file = retry_io(|| File::create(&tmp_path_inner))
+                    .map_err(|e| anyhow::anyhow!("Create {}: {}", tmp_path_inner.display(), e))?;
+                let mut hasher = algorithm.new_hasher();
+
+                for msg in rx {
+                    match msg {
+                        ChunkMessage::Data(bytes) => {
+                            retry_io(|| file.write_all(&bytes))?;
+                            hasher.update(&bytes);
+                        }
+                        ChunkMessage::End => break,
                     }
-                    ChunkMessage::End => break,
+                }
+                if sync_writes {
+                    retry_io(|| file.sync_data())?;
+                }
+                // Close the file before renaming — Windows refuses to rename
+                // an open handle. Dropping is sufficient on Unix too.
+                drop(file);
+
+                // If the main loop signalled an abort (e.g. the disconnect
+                // detector decided to mark this destination failed), don't
+                // commit the partial file — leave the original destination
+                // (if any) untouched.
+                if abort.load(Ordering::Acquire) {
+                    anyhow::bail!("aborted by orchestrator");
+                }
+
+                if let Err(e) = std::fs::rename(&tmp_path_inner, &dest_path_for_thread) {
+                    anyhow::bail!(
+                        "rename {} -> {}: {}",
+                        tmp_path_inner.display(),
+                        dest_path_for_thread.display(),
+                        e
+                    );
+                }
+                Ok(hasher.finalize_hex())
+            };
+
+            match work() {
+                Ok(hash) => Ok(hash),
+                Err(e) => {
+                    // Best-effort cleanup; ignore secondary errors so we
+                    // don't mask the original cause.
+                    let _ = std::fs::remove_file(&tmp_path);
+                    Err(e)
                 }
             }
-            if sync_writes {
-                retry_io(|| file.sync_data())?;
-            }
-            Ok(hasher.finalize_hex())
         });
         handles.push((idx, handle));
     }
@@ -505,9 +586,16 @@ fn copy_file_fanout(
     let mut buf = vec![0u8; CHUNK_SIZE];
     loop {
         if cancel_flag.load(Ordering::Relaxed) {
+            // Tell every live writer to abort (don't commit the partial),
+            // send End to wake them from rx.recv, then drain all handles so
+            // no detached threads are left behind.
+            for (_, abort) in &abort_flags {
+                abort.store(true, Ordering::Release);
+            }
             for (_, sender) in &senders {
                 let _ = sender.send(ChunkMessage::End);
             }
+            drain_handles(&mut handles, &mut result, warnings, relative_path);
             return Err(anyhow::anyhow!("Cancelled by user"));
         }
 
@@ -515,9 +603,13 @@ fn copy_file_fanout(
             Ok(0) => break,
             Ok(n) => n,
             Err(e) => {
+                for (_, abort) in &abort_flags {
+                    abort.store(true, Ordering::Release);
+                }
                 for (_, sender) in &senders {
                     let _ = sender.send(ChunkMessage::End);
                 }
+                drain_handles(&mut handles, &mut result, warnings, relative_path);
                 return Err(anyhow::anyhow!("Read error {}: {}", src_path.display(), e));
             }
         };
@@ -530,14 +622,20 @@ fn copy_file_fanout(
             if sender.send(chunk.clone()).is_ok() {
                 i += 1;
             } else {
-                // This destination disconnected - mark as failed and continue
+                // Destination disconnected: signal its writer to abort, mark
+                // the result, drop the sender so the writer can exit its
+                // recv() loop, and forget the handle (we'll set a Failed
+                // result and the thread will clean up its partial on its
+                // own before terminating).
+                if let Some((_, abort)) = abort_flags.iter().find(|(idx, _)| *idx == dest_idx) {
+                    abort.store(true, Ordering::Release);
+                }
                 result[dest_idx] = FileCopyStatus::Failed("Destination writer disconnected".into());
                 warnings.push(format!(
                     "Destination {} disconnected during copy of {}",
                     dest_idx + 1,
                     relative_path
                 ));
-                // Remove handle for this destination
                 if let Some(pos) = handles.iter().position(|(idx, _)| *idx == dest_idx) {
                     handles.swap_remove(pos);
                 }
@@ -552,24 +650,64 @@ fn copy_file_fanout(
     }
 
     // Collect results from remaining handles (indexed by dest_idx)
-    for (dest_idx, handle) in handles {
+    collect_join_results(&mut handles, &mut result, warnings, relative_path);
+
+    Ok(result)
+}
+
+/// Join any writers still in `handles`, populating `result` with the
+/// appropriate FileCopyStatus. Drops the join handle without joining for
+/// already-marked-failed destinations (their writer will self-terminate
+/// after cleaning up its partial).
+fn drain_handles(
+    handles: &mut Vec<(usize, std::thread::JoinHandle<anyhow::Result<String>>)>,
+    result: &mut [FileCopyStatus],
+    warnings: &mut Vec<String>,
+    relative_path: &str,
+) {
+    let mut still_live: Vec<(usize, std::thread::JoinHandle<anyhow::Result<String>>)> =
+        Vec::with_capacity(handles.len());
+    for (dest_idx, handle) in handles.drain(..) {
+        if matches!(result[dest_idx], FileCopyStatus::Failed(_)) {
+            // Already marked failed by the orchestrator (disconnect or
+            // error). The writer will self-terminate after cleaning up its
+            // .partial; we still join to avoid a detached thread.
+            let _ = handle.join();
+            continue;
+        }
+        still_live.push((dest_idx, handle));
+    }
+    collect_join_results(&mut still_live, result, warnings, relative_path);
+}
+
+fn collect_join_results(
+    handles: &mut Vec<(usize, std::thread::JoinHandle<anyhow::Result<String>>)>,
+    result: &mut [FileCopyStatus],
+    warnings: &mut Vec<String>,
+    relative_path: &str,
+) {
+    for (dest_idx, handle) in handles.drain(..) {
         match handle.join() {
             Ok(Ok(hash)) => result[dest_idx] = FileCopyStatus::Copied(hash),
             Ok(Err(e)) => {
                 result[dest_idx] = FileCopyStatus::Failed(format!("Writer error: {}", e));
-                warnings.push(format!("Destination {} writer error: {}", dest_idx + 1, e));
+                warnings.push(format!(
+                    "Destination {} writer error for {}: {}",
+                    dest_idx + 1,
+                    relative_path,
+                    e
+                ));
             }
             Err(_) => {
                 result[dest_idx] = FileCopyStatus::Failed("Writer thread panicked".into());
                 warnings.push(format!(
-                    "Destination {} writer thread panicked",
-                    dest_idx + 1
+                    "Destination {} writer thread panicked for {}",
+                    dest_idx + 1,
+                    relative_path
                 ));
             }
         }
     }
-
-    Ok(result)
 }
 
 fn verify_file(
@@ -601,6 +739,12 @@ fn verify_file(
     Ok(())
 }
 
+/// True if `path` itself carries a Windows hidden/system attribute, or if
+/// any component of `path` is a hidden directory (dot-prefix on Unix,
+/// Windows attribute on Windows) or a known system folder such as
+/// `$RECYCLE.BIN`. Callers should strip their walk root before calling so
+/// ancestor components like the host's tempdir (which on Windows can
+/// start with `.`) are not considered.
 #[inline]
 fn is_hidden_or_system(path: &Path) -> bool {
     #[cfg(windows)]
@@ -613,9 +757,17 @@ fn is_hidden_or_system(path: &Path) -> bool {
             }
         }
     }
-    if let Some(name) = path.file_name() {
-        let name = name.to_string_lossy();
-        if name.starts_with('.') || name == "$RECYCLE.BIN" || name == "System Volume Information" {
+    for component in path.components() {
+        let name = match component.as_os_str().to_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        if name.starts_with('.')
+            || name == "$RECYCLE.BIN"
+            || name == "System Volume Information"
+            || name == "RECYCLER"
+            || name == "Config.Msi"
+        {
             return true;
         }
     }
@@ -668,12 +820,23 @@ mod tests {
     }
 
     #[test]
+    fn is_hidden_dotfile_in_nested_path() {
+        use std::path::Path;
+        assert!(is_hidden_or_system(Path::new("foo/.hidden/bar.mxf")));
+        assert!(is_hidden_or_system(Path::new("a/b/.DS_Store")));
+    }
+
+    #[test]
     #[cfg(windows)]
     fn is_hidden_system_folders() {
         use std::path::Path;
         assert!(is_hidden_or_system(Path::new("$RECYCLE.BIN/something")));
         assert!(is_hidden_or_system(Path::new(
             "System Volume Information/something"
+        )));
+        // Deeply nested files inside system folders must still be detected.
+        assert!(is_hidden_or_system(Path::new(
+            "D:/$RECYCLE.BIN/S-1-5-21/desktop.ini"
         )));
     }
 
@@ -882,5 +1045,173 @@ mod tests {
         .unwrap();
 
         assert_eq!(phases, vec!["copying".to_string()]);
+    }
+
+    #[test]
+    fn successful_copy_leaves_no_partial_file() {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("clip.mxf"), b"hello world").unwrap();
+
+        let scan = scan_source(src.path(), &OffloadOptions::default(), &mut |_, _| {}).unwrap();
+        let destinations = vec![DestinationConfig {
+            path: dst.path().to_path_buf(),
+            label: Some("A".into()),
+        }];
+        let cancel = AtomicBool::new(false);
+        let mut warnings = Vec::new();
+
+        offload_files(
+            src.path(),
+            &scan,
+            &destinations,
+            false,
+            &cancel,
+            &mut |_| {},
+            false,
+            false,
+            &mut warnings,
+        )
+        .unwrap();
+
+        // The destination file exists and has the expected contents.
+        let dest_file = dst.path().join("clip.mxf");
+        assert!(dest_file.exists());
+        let read_back = std::fs::read(&dest_file).unwrap();
+        assert_eq!(read_back, b"hello world");
+
+        // No `.partial` file should remain alongside the destination.
+        let partial = dst.path().join("clip.mxf.partial");
+        assert!(
+            !partial.exists(),
+            "writer left an orphan .partial file: {}",
+            partial.display()
+        );
+    }
+
+    #[test]
+    fn successful_copy_overwrites_existing_destination() {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("clip.mxf"), b"new content").unwrap();
+        // Pre-existing destination with stale contents.
+        std::fs::write(dst.path().join("clip.mxf"), b"old content").unwrap();
+
+        let scan = scan_source(src.path(), &OffloadOptions::default(), &mut |_, _| {}).unwrap();
+        let destinations = vec![DestinationConfig {
+            path: dst.path().to_path_buf(),
+            label: Some("A".into()),
+        }];
+        let cancel = AtomicBool::new(false);
+        let mut warnings = Vec::new();
+
+        offload_files(
+            src.path(),
+            &scan,
+            &destinations,
+            false,
+            &cancel,
+            &mut |_| {},
+            false,
+            false,
+            &mut warnings,
+        )
+        .unwrap();
+
+        let read_back = std::fs::read(dst.path().join("clip.mxf")).unwrap();
+        assert_eq!(read_back, b"new content");
+        assert!(!dst.path().join("clip.mxf.partial").exists());
+    }
+
+    #[test]
+    fn cancel_during_copy_does_not_leave_partial_file() {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        // One file is enough; the cancel flag fires on the first file.
+        std::fs::write(src.path().join("clip.mxf"), b"x".repeat(64 * 1024)).unwrap();
+
+        let scan = scan_source(src.path(), &OffloadOptions::default(), &mut |_, _| {}).unwrap();
+        let destinations = vec![DestinationConfig {
+            path: dst.path().to_path_buf(),
+            label: Some("A".into()),
+        }];
+        let cancel = AtomicBool::new(true); // pre-cancelled
+        let mut warnings = Vec::new();
+
+        let result = offload_files(
+            src.path(),
+            &scan,
+            &destinations,
+            false,
+            &cancel,
+            &mut |_| {},
+            false,
+            false,
+            &mut warnings,
+        );
+
+        // The offload itself should succeed (cancellation is reported via
+        // per-destination state, not as a hard error). The destination
+        // should be untouched: no .mxf and no .partial.
+        assert!(result.is_ok());
+        assert!(!dst.path().join("clip.mxf").exists());
+        assert!(
+            !dst.path().join("clip.mxf.partial").exists(),
+            "cancel left an orphan .partial file"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn destination_write_failure_cleans_up_partial() {
+        use std::os::unix::fs::PermissionsExt;
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join("clip.mxf"), b"contents").unwrap();
+
+        // Make the destination read-only so any attempt to create the
+        // .partial file fails. Running as root would bypass this, so
+        // self-check.
+        std::fs::set_permissions(dst.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        if std::fs::write(dst.path().join("probe"), b"x").is_ok() {
+            std::fs::set_permissions(dst.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+            // Permissions don't apply (e.g. running as root). Skip.
+            return;
+        }
+
+        let scan = scan_source(src.path(), &OffloadOptions::default(), &mut |_, _| {}).unwrap();
+        let destinations = vec![DestinationConfig {
+            path: dst.path().to_path_buf(),
+            label: Some("A".into()),
+        }];
+        let cancel = AtomicBool::new(false);
+        let mut warnings = Vec::new();
+
+        let result = offload_files(
+            src.path(),
+            &scan,
+            &destinations,
+            false,
+            &cancel,
+            &mut |_| {},
+            false,
+            false,
+            &mut warnings,
+        );
+        // Restore permissions so the tempdir can be cleaned up.
+        std::fs::set_permissions(dst.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // The offload itself should still succeed (per-destination failure
+        // is reported via state); the destination should be empty.
+        assert!(result.is_ok());
+        let entries: Vec<_> = std::fs::read_dir(dst.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert!(
+            entries.is_empty(),
+            "expected no leftover files in dst, found: {:?}",
+            entries
+        );
     }
 }
