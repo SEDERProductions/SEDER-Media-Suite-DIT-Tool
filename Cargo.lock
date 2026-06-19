@@ -385,6 +385,7 @@ dependencies = [
  "blake3",
  "crossbeam-channel",
  "globset",
+ "libc",
  "md-5",
  "serde",
  "serde_json",
