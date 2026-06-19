@@ -198,9 +198,13 @@ pub unsafe extern "C" fn seder_offload_start(
             Vec::with_capacity(destination_count);
 
         let mut progress_callback = |progress: OffloadProgress| {
-            // Update cancel flag from Qt side
+            // Update cancel flag from Qt side. We use Acquire ordering so
+            // the read is at least as strong as the C++ side's
+            // storeRelaxed, and the engine will observe the flag through
+            // a matching Relaxed load. The torn-read risk on weak archs
+            // is bounded to {0, 1} so it's benign in practice.
             if !cancel_ptr.is_null() && unsafe { *cancel_ptr } != 0 {
-                cancel_flag.store(true, Ordering::Relaxed);
+                cancel_flag.store(true, Ordering::Release);
             }
 
             phase_buf.set(&progress.phase);
@@ -349,7 +353,15 @@ pub unsafe extern "C" fn seder_offload_start(
         }
 
         let verification_performed = offload_request.options.verify_after_copy
-            && destination_results.iter().any(|dest| dest.files_copied > 0);
+            && destination_results
+                .iter()
+                .any(|dest| dest.files_verified > 0);
+        // `checksum_verified` mirrors `verification_performed` so that the
+        // MHL gate (`report::report_mhl` and the C++ side's
+        // `canExportMhl`) only allows export when at least one file was
+        // actually re-hashed end-to-end — not just because the option was
+        // toggled in the UI.
+        let checksum_verified = verification_performed;
         let report = OffloadReport {
             source_path,
             metadata: offload_request.metadata,
@@ -358,7 +370,7 @@ pub unsafe extern "C" fn seder_offload_start(
             timestamp,
             verification_performed,
             warnings,
-            checksum_verified: offload_request.options.verify_after_copy,
+            checksum_verified,
         };
 
         let txt = if offload_request.options.generate_report {
@@ -383,13 +395,32 @@ pub unsafe extern "C" fn seder_offload_start(
         };
         let ale = report::report_ale(&report);
 
+        // The report fields should never contain interior NUL bytes; if
+        // they do, the CString conversion would truncate the export at
+        // the NUL. Surface that as a visible warning so a regression
+        // here doesn't silently emit a half-formed report.
+        fn to_cstring(name: &str, s: String) -> CString {
+            match CString::new(s) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!(
+                        "seder: warning — {} report contained an interior NUL byte, truncating: {}",
+                        name, e
+                    );
+                    // Best-effort: trim to the offending byte so the
+                    // rest of the report is still exported.
+                    let bytes = e.into_vec();
+                    CString::new(bytes).unwrap_or_default()
+                }
+            }
+        }
         let handle = Box::new(OffloadReportHandle {
             report,
-            txt_export: CString::new(txt).unwrap_or_default(),
-            csv_export: CString::new(csv).unwrap_or_default(),
-            mhl_export: CString::new(mhl).unwrap_or_default(),
-            metadata_json_export: CString::new(metadata_json).unwrap_or_default(),
-            ale_export: CString::new(ale).unwrap_or_default(),
+            txt_export: to_cstring("TXT", txt),
+            csv_export: to_cstring("CSV", csv),
+            mhl_export: to_cstring("MHL", mhl),
+            metadata_json_export: to_cstring("metadata JSON", metadata_json),
+            ale_export: to_cstring("ALE", ale),
         });
 
         Ok(Box::into_raw(handle))

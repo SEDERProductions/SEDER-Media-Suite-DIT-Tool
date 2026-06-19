@@ -24,12 +24,24 @@ pub fn expand(template: &str, metadata: &ProjectMetadata) -> String {
 
 fn substitute(template: &str, metadata: &ProjectMetadata) -> String {
     let mut out = String::with_capacity(template.len());
-    let bytes = template.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'{' {
-            if let Some(close) = template[i..].find('}') {
-                let token = &template[i + 1..i + close];
+    // Iterate over chars (not bytes) so non-ASCII template characters
+    // (e.g. accented project names) round-trip through the engine
+    // without being mangled by `u8 as char` truncation.
+    let mut chars = template.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            // Collect the token up to the matching '}'. Unknown or
+            // unterminated tokens are left in place verbatim.
+            let mut token = String::new();
+            let mut closed = false;
+            for next in chars.by_ref() {
+                if next == '}' {
+                    closed = true;
+                    break;
+                }
+                token.push(next);
+            }
+            if closed {
                 let lower = token.to_ascii_lowercase();
                 let replacement = match lower.as_str() {
                     "project" => Some(metadata.project_name.as_str()),
@@ -40,13 +52,22 @@ fn substitute(template: &str, metadata: &ProjectMetadata) -> String {
                 };
                 if let Some(value) = replacement {
                     out.push_str(value);
-                    i += close + 1;
                     continue;
                 }
+                // Unknown token: emit the original `{token}` literally so
+                // the user can see what was misspelled.
+                out.push('{');
+                out.push_str(&token);
+                out.push('}');
+                continue;
             }
+            // Unterminated `{` — emit the literal so the user sees it
+            // and we don't silently swallow input.
+            out.push('{');
+            out.push_str(&token);
+        } else {
+            out.push(ch);
         }
-        out.push(bytes[i] as char);
-        i += 1;
     }
     out
 }
@@ -147,5 +168,33 @@ mod tests {
     #[test]
     fn no_tokens_means_no_change() {
         assert_eq!(expand("dailies/raw", &meta()), "dailies/raw");
+    }
+
+    #[test]
+    fn non_ascii_template_characters_round_trip() {
+        // The old implementation indexed `template.as_bytes()` and pushed
+        // each byte through `u8 as char`, which truncates multi-byte
+        // UTF-8 sequences (e.g. `é` became `Ã©`). Verify the new char
+        // iterator preserves them.
+        assert_eq!(expand("café/{project}", &meta()), "café/Mountain Film");
+    }
+
+    #[test]
+    fn non_ascii_metadata_round_trips() {
+        // Token values can also be non-ASCII (project name in any
+        // language). The substitution must not mangle them.
+        let mut m = meta();
+        m.project_name = "東京オリンピック".into();
+        assert_eq!(expand("{project}/{card}", &m), "東京オリンピック/A001");
+    }
+
+    #[test]
+    fn unterminated_brace_is_preserved_literally() {
+        // A `{` with no closing `}` should be visible to the user, not
+        // silently dropped.
+        assert_eq!(
+            expand("{project}/{unfinished", &meta()),
+            "Mountain Film/{unfinished"
+        );
     }
 }

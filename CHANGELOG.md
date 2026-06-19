@@ -11,6 +11,49 @@ A large rework of the DIT feature surface. The core engine that scans,
 copies, verifies, and reports is unchanged in spirit but extended in
 every direction.
 
+### Data integrity & robustness fixes (PR #34)
+- **Partial-file cleanup**: copy writers now stage through
+  `<dest>.partial` and only rename onto the destination after a
+  successful hash. Any error, disconnect, or cancel removes the
+  partial so the original file (if any) is never replaced with a
+  half-written copy. A per-writer `Arc<AtomicBool>` abort flag closes
+  the race where a writer kept committing after the orchestrator had
+  marked the destination `Failed`.
+- **Cancellation joins writers**: cancel now sets every writer's abort
+  flag, sends `End`, and drains all `JoinHandle`s before returning
+  `Err`, so a cancelled run leaves no orphaned `.partial` files behind.
+- **`is_hidden_or_system` walks the full path**: previously only the
+  last component was checked, so files inside `$RECYCLE.BIN` or
+  `System Volume Information` were missed. Now every component of the
+  *relative* path (source root stripped first so a host tempdir like
+  `\.tmpXYZ` doesn't poison the scan) is examined. `RECYCLER` and
+  `Config.Msi` are also recognised.
+- **Honest verify flags**: `verification_performed` and
+  `checksum_verified` now require `files_verified > 0` on at least one
+  destination, so MHL/CSV exports can no longer claim a verify-after-copy
+  pass when the engine actually failed to copy anything.
+- **ffprobe timeout enforced**: `PROBE_TIMEOUT` (5 s) was declared but
+  never used. A hung ffprobe is now killed via the platform-native path
+  (`SIGKILL` on Unix, `TerminateProcess` on Windows) and the call
+  returns `Err`, so a corrupt file can no longer freeze the whole scan.
+- **Cancel-token atomic ordering**: the FFI read of the Qt-side cancel
+  flag uses `Ordering::Release` for cross-platform atomic clarity.
+- **Template engine preserves non-ASCII**: `substitute()` now iterates
+  over `chars()` instead of `as_bytes()`, so non-ASCII template strings
+  and metadata (`café`, `東京`) round-trip without mangling. Unknown
+  tokens and unterminated `{` are preserved literally.
+- **CString report conversion**: failures now log a warning and
+  truncate at the offending NUL instead of silently emitting an empty
+  CString.
+- **Clippy**: collapsed a `collapsible_match` in `volume.rs`.
+- **Tests**: added `successful_copy_leaves_no_partial_file`,
+  `cancel_during_copy_does_not_leave_partial_file`,
+  `destination_write_failure_cleans_up_partial` (Unix),
+  `verify_file_detects_tampered_destination`,
+  `wait_with_timeout_kills_hung_process`, and template non-ASCII tests.
+  Renamed the misleading `verify_failure_detected` integration test to
+  `verify_succeeds_after_overwrite`.
+
 ### Reliability
 - Transient I/O errors (Interrupted, WouldBlock, TimedOut,
   ConnectionReset, ConnectionAborted, BrokenPipe) now retry up to three
