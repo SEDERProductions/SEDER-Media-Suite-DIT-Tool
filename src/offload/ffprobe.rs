@@ -304,7 +304,11 @@ fn kill_process(pid: u32) {
         // documented to be safe to call with a valid process id and
         // NULL handle returns are well-defined.
         extern "system" {
-            fn OpenProcess(dwDesiredAccess: u32, bInheritHandle: i32, dwProcessId: u32) -> *mut std::ffi::c_void;
+            fn OpenProcess(
+                dwDesiredAccess: u32,
+                bInheritHandle: i32,
+                dwProcessId: u32,
+            ) -> *mut std::ffi::c_void;
             fn TerminateProcess(hProcess: *mut std::ffi::c_void, uExitCode: u32) -> i32;
             fn CloseHandle(hObject: *mut std::ffi::c_void) -> i32;
         }

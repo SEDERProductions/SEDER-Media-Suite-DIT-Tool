@@ -185,16 +185,16 @@ mod tests {
         // language). The substitution must not mangle them.
         let mut m = meta();
         m.project_name = "東京オリンピック".into();
-        assert_eq!(
-            expand("{project}/{card}", &m),
-            "東京オリンピック/A001"
-        );
+        assert_eq!(expand("{project}/{card}", &m), "東京オリンピック/A001");
     }
 
     #[test]
     fn unterminated_brace_is_preserved_literally() {
         // A `{` with no closing `}` should be visible to the user, not
         // silently dropped.
-        assert_eq!(expand("{project}/{unfinished", &meta()), "Mountain Film/{unfinished");
+        assert_eq!(
+            expand("{project}/{unfinished", &meta()),
+            "Mountain Film/{unfinished"
+        );
     }
 }
